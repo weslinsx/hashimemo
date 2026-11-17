@@ -1,0 +1,5 @@
+######### Sugestões, Erros e Melhorias HashiMemo #########
+## Apague os que já foram corrigidos.
+
+1 - Futuramente inclua opção de lembrete e alarme
+2 - Poder configurar a pasta onde anotações são salvas
