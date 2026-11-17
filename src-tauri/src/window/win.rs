@@ -1,34 +1,6 @@
 use tauri::WebviewWindow;
 
 #[cfg(windows)]
-pub fn monitor_bounds(window: &WebviewWindow) -> Option<(i32, i32, i32, i32)> {
-    use windows::Win32::Foundation::{HWND, RECT};
-    use windows::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
-    };
-
-    let handle = window.hwnd().ok()?;
-    let hwnd = HWND(handle.0 as *mut _);
-    unsafe {
-        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        let mut info = MONITORINFO {
-            cbSize: size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-            return None;
-        }
-        let RECT { left, top, right, bottom } = info.rcMonitor;
-        Some((left, top, right, bottom))
-    }
-}
-
-#[cfg(not(windows))]
-pub fn monitor_bounds(_window: &WebviewWindow) -> Option<(i32, i32, i32, i32)> {
-    None
-}
-
-#[cfg(windows)]
 pub fn rect(window: &WebviewWindow) -> Option<(i32, i32, i32, i32)> {
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
@@ -106,3 +78,26 @@ pub fn remove_native_frame(window: &WebviewWindow) {
 
 #[cfg(not(windows))]
 pub fn remove_native_frame(_window: &WebviewWindow) {}
+
+#[cfg(windows)]
+pub fn set_round(window: &WebviewWindow, round: bool) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{
+        DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DWMWCP_ROUND, DwmSetWindowAttribute,
+    };
+
+    let Ok(handle) = window.hwnd() else { return };
+    let hwnd = HWND(handle.0 as *mut _);
+    let corner = if round { DWMWCP_ROUND } else { DWMWCP_DONOTROUND };
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &corner as *const _ as *const _,
+            size_of::<i32>() as u32,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+pub fn set_round(_window: &WebviewWindow, _round: bool) {}

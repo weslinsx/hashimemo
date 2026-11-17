@@ -2,4 +2,6 @@
 ## Apague os que já foram corrigidos.
 
 1 - Futuramente inclua opção de lembrete e alarme
-2 - Poder configurar a pasta onde anotações são salvas
+2 - Sublinhado nas notas: Markdown não tem sintaxe; hoje o editor faz negrito, itálico, tachado, código, listas, título e captura de janela
+3 - Cantos arredondados: hoje só na janela flutuante; dockado no rail continua reto
+4 - Refinar animações (transição de abas, zoom do editor) além do fade de entrada atual

@@ -1,3 +1,4 @@
+mod capture;
 mod settings;
 pub mod notes;
 mod window;
@@ -95,6 +96,7 @@ pub fn run() {
             app.manage(settings);
 
             window::init(handle)?;
+            window::watch_monitors(handle.clone());
             notes::init(handle)?;
             tray(handle)?;
             hotkey(handle)?;
@@ -104,6 +106,7 @@ pub fn run() {
             window::window_state,
             window::set_level,
             window::toggle_dock,
+            window::cycle_monitor,
             settings::get_settings,
             settings::update_settings,
             notes::notes_dir,
@@ -112,7 +115,8 @@ pub fn run() {
             notes::create_note,
             notes::update_note,
             notes::delete_note,
-            notes::search_notes
+            notes::search_notes,
+            capture::capture_window
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o HashiMemo")

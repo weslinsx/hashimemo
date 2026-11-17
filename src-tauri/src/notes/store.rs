@@ -1,6 +1,6 @@
 use std::{
     fs, io,
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::SystemTime,
 };
 
@@ -22,6 +22,8 @@ pub struct Note {
     pub group: String,
     pub order: f64,
     pub pinned: bool,
+    #[serde(default)]
+    pub hidden: bool,
     pub created: String,
     pub updated: String,
     pub mtime: u64,
@@ -56,6 +58,7 @@ impl std::fmt::Display for Error {
 
 pub struct Store {
     root: PathBuf,
+    notes: Option<PathBuf>,
 }
 
 fn home() -> PathBuf {
@@ -144,15 +147,25 @@ impl Store {
     pub fn new() -> Self {
         Self {
             root: home().join("HashiMemo"),
+            notes: None,
         }
     }
 
-    pub fn at(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+    pub fn with_notes(notes: Option<String>) -> Self {
+        let notes = notes
+            .map(|path| path.trim().to_string())
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from);
+        Self {
+            root: home().join("HashiMemo"),
+            notes,
+        }
     }
 
     pub fn notes_dir(&self) -> PathBuf {
-        self.root.join("notes")
+        self.notes
+            .clone()
+            .unwrap_or_else(|| self.root.join("notes"))
     }
 
     pub fn media_dir(&self) -> PathBuf {
@@ -196,6 +209,7 @@ impl Store {
             group: text(&map, "group"),
             order: number(&map, "order"),
             pinned: flag(&map, "pinned"),
+            hidden: flag(&map, "hidden"),
             created: text(&map, "created"),
             updated: text(&map, "updated"),
             mtime,
@@ -268,7 +282,7 @@ impl Store {
     fn render(&self, note: &Note) -> String {
         let mut map = note.extra.clone();
         for key in [
-            "id", "title", "color", "group", "order", "pinned", "created", "updated",
+            "id", "title", "color", "group", "order", "pinned", "hidden", "created", "updated",
         ] {
             map.shift_remove(Value::from(key));
         }
@@ -280,6 +294,7 @@ impl Store {
         head.insert(Value::from("group"), Value::from(note.group.clone()));
         head.insert(Value::from("order"), Value::from(note.order));
         head.insert(Value::from("pinned"), Value::from(note.pinned));
+        head.insert(Value::from("hidden"), Value::from(note.hidden));
         head.insert(Value::from("created"), Value::from(note.created.clone()));
         head.insert(Value::from("updated"), Value::from(note.updated.clone()));
         for (key, value) in map {
@@ -322,6 +337,7 @@ impl Store {
             group: group.trim().to_string(),
             order,
             pinned: false,
+            hidden: false,
             created: created.clone(),
             updated: now,
             mtime: 0,
@@ -335,6 +351,9 @@ impl Store {
     }
 
     pub fn save(&self, mut note: Note) -> Result<Note, Error> {
+        if note.path.as_os_str().is_empty() {
+            note.path = self.fetch(&note.id).map(|found| found.path).ok_or(Error::NotFound)?;
+        }
         let meta = fs::metadata(&note.path).map_err(|_| Error::NotFound)?;
         if mtime_ms(&meta) != note.mtime {
             let current = self
@@ -376,8 +395,4 @@ impl Default for Store {
     fn default() -> Self {
         Self::new()
     }
-}
-
-pub fn store_at(path: impl AsRef<Path>) -> Store {
-    Store::at(path.as_ref().to_path_buf())
 }

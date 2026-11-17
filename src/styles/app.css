@@ -26,6 +26,54 @@
   --radius-card: 0.75rem;
 }
 
+:root[data-theme="latte"] {
+  --color-base: #eff1f5;
+  --color-mantle: #e6e9ef;
+  --color-crust: #dce0e8;
+  --color-surface0: #ccd0da;
+  --color-surface1: #bcc0cc;
+  --color-surface2: #acb0be;
+  --color-overlay0: #8c8fa1;
+  --color-subtext0: #6c6f85;
+  --color-subtext1: #5c5f77;
+  --color-text: #4c4f69;
+  --color-mauve: #8839ef;
+  --color-lavender: #7287fd;
+  --color-blue: #1e66f5;
+  --color-sapphire: #209fb5;
+  --color-teal: #179299;
+  --color-green: #40a02b;
+  --color-yellow: #df8e1d;
+  --color-peach: #fe640b;
+  --color-maroon: #e64553;
+  --color-red: #d20f39;
+  --color-pink: #ea76cb;
+}
+
+:root[data-theme="breeze"] {
+  --color-base: #23262e;
+  --color-mantle: #1e2127;
+  --color-crust: #181a1f;
+  --color-surface0: #2f3440;
+  --color-surface1: #3c4354;
+  --color-surface2: #4d566b;
+  --color-overlay0: #7f8a9f;
+  --color-subtext0: #aab4c6;
+  --color-subtext1: #c6cfdd;
+  --color-text: #eff1f5;
+  --color-mauve: #8ab4f8;
+  --color-lavender: #a8c7fa;
+  --color-blue: #5aa7f7;
+  --color-sapphire: #4fb8d9;
+  --color-teal: #43c6b0;
+  --color-green: #7fd18e;
+  --color-yellow: #e6c07b;
+  --color-peach: #f0a35e;
+  --color-maroon: #d97b8c;
+  --color-red: #e2687a;
+  --color-pink: #d998d3;
+}
+
 @layer base {
   html {
     font-size: calc(16px * var(--scale, 1));
@@ -79,6 +127,7 @@
     background: color-mix(in srgb, var(--color-surface0) 38%, var(--color-crust));
     border: 1px solid color-mix(in srgb, var(--color-surface1) 55%, transparent);
     border-radius: var(--radius-card);
+    animation: card-in 220ms ease-out both;
     transition:
       border-color 160ms ease,
       transform 160ms ease,
@@ -93,6 +142,30 @@
 
   .level-enter {
     animation: level-fade 180ms ease-out;
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-card,
+  .level-enter {
+    animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 1ms !important;
   }
 }
 

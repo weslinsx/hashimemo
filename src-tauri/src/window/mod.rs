@@ -14,7 +14,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, WindowEvent,
+    AppHandle, Manager, State, WebviewWindow, WindowEvent,
 };
 
 use anim::Rect;
@@ -36,6 +36,7 @@ pub struct WindowState {
     pub level: Level,
     pub docked: bool,
     pub hyprland: bool,
+    pub monitors: usize,
 }
 
 pub struct AppState {
@@ -49,6 +50,8 @@ struct Inner {
     docked: bool,
     width: u32,
     floating: Option<(i32, i32)>,
+    #[serde(default)]
+    monitor: Option<String>,
 }
 
 impl Default for Inner {
@@ -58,6 +61,7 @@ impl Default for Inner {
             docked: true,
             width: RAIL_WIDTH,
             floating: None,
+            monitor: None,
         }
     }
 }
@@ -106,36 +110,51 @@ fn save(app: &AppHandle, inner: &Inner) {
     }
 }
 
-fn work_area(window: &WebviewWindow) -> Rect {
-    let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| window.primary_monitor().ok().flatten());
+fn monitors(window: &WebviewWindow) -> Vec<tauri::Monitor> {
+    let mut list = window.available_monitors().unwrap_or_default();
+    list.sort_by_key(|monitor| (monitor.position().x, monitor.position().y));
+    list
+}
 
-    monitor.map_or(
+fn monitor_rects(window: &WebviewWindow, name: Option<&str>) -> Option<(Rect, Rect)> {
+    let list = monitors(window);
+    let primary = window.primary_monitor().ok().flatten();
+    let chosen = name
+        .and_then(|name| list.iter().find(|monitor| monitor.name().map(|n| n.as_str()) == Some(name)))
+        .or(primary.as_ref().or_else(|| list.first()))?;
+    let position = chosen.position();
+    let size = chosen.size();
+    let area = chosen.work_area();
+    Some((
+        Rect {
+            x: position.x,
+            y: position.y,
+            w: size.width,
+            h: size.height,
+        },
+        Rect {
+            x: area.position.x,
+            y: area.position.y,
+            w: area.size.width,
+            h: area.size.height,
+        },
+    ))
+}
+
+fn work_area(window: &WebviewWindow, name: Option<&str>) -> Rect {
+    monitor_rects(window, name).map_or(
         Rect {
             x: 0,
             y: 0,
             w: 1280,
             h: 800,
         },
-        |monitor| {
-            let area = monitor.work_area();
-            Rect {
-                x: area.position.x,
-                y: area.position.y,
-                w: area.size.width,
-                h: area.size.height,
-            }
-        },
+        |(_, work)| work,
     )
 }
 
-fn screen_right(window: &WebviewWindow) -> Option<i32> {
-    win::monitor_bounds(window)
-        .map(|(_, _, right, _)| right)
-        .or_else(|| window.current_monitor().ok().flatten().map(|monitor| monitor.position().x + monitor.size().width as i32))
+fn screen_right(window: &WebviewWindow, name: Option<&str>) -> Option<i32> {
+    monitor_rects(window, name).map(|(full, _)| full.x + full.w as i32)
 }
 
 fn rail_rect(right: i32, work: Rect, width: u32) -> Rect {
@@ -174,20 +193,22 @@ fn apply(
     level: Level,
     animated: bool,
 ) -> WindowState {
-    let (docked, width, floating) = match state.inner.lock() {
+    let (docked, width, floating, monitor) = match state.inner.lock() {
         Ok(mut inner) => {
             inner.level = level;
-            (inner.docked, inner.width, inner.floating)
+            (inner.docked, inner.width, inner.floating, inner.monitor.clone())
         }
-        Err(_) => (true, RAIL_WIDTH, None),
+        Err(_) => (true, RAIL_WIDTH, None, None),
     };
     let level = if docked { level } else { Level::Docked };
     let rail = docked && level == Level::Docked;
 
-    appbar::release(window);
+    if !rail {
+        appbar::release(window);
+    }
 
-    let work = work_area(window);
-    let right = screen_right(window).unwrap_or(work.x + work.w as i32);
+    let work = work_area(window, monitor.as_deref());
+    let right = screen_right(window, monitor.as_deref()).unwrap_or(work.x + work.w as i32);
 
     let target = if docked {
         level_rect(level, work, right, width)
@@ -212,6 +233,7 @@ fn apply(
     let _ = window.set_skip_taskbar(true);
     let _ = window.set_resizable(!docked);
     win::remove_native_frame(window);
+    win::set_round(window, !rail);
 
     if hyprland() {
         #[cfg(target_os = "linux")]
@@ -231,8 +253,7 @@ fn apply(
             band,
         );
     } else {
-        let _ = window.set_size(PhysicalSize::new(target.w, target.h));
-        let _ = window.set_position(PhysicalPosition::new(target.x, target.y));
+        win::place(window, target.x, target.y, target.w, target.h);
         if let Some((left, top, right, bottom)) = band {
             appbar::reserve(window, left, top, right, bottom);
             settle(window.clone(), target, state.generation.clone());
@@ -247,6 +268,7 @@ fn apply(
         level,
         docked,
         hyprland: hyprland(),
+        monitors: monitors(window).len(),
     }
 }
 
@@ -263,6 +285,39 @@ fn settle(window: WebviewWindow, target: Rect, generation: Arc<AtomicU64>) {
             });
             if !ok {
                 win::place(&window, target.x, target.y, target.w, target.h);
+            }
+        }
+    });
+}
+
+pub fn watch_monitors(app: AppHandle) {
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(15));
+            let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
+                return;
+            };
+            if !window.is_visible().unwrap_or(false) {
+                continue;
+            }
+            let state = app.state::<AppState>();
+            let (docked, monitor) = state
+                .inner
+                .lock()
+                .map(|inner| (inner.docked && inner.level == Level::Docked, inner.monitor.clone()))
+                .unwrap_or((false, None));
+            if !docked {
+                continue;
+            }
+            let (Some(full), Some((x, y, w, h))) =
+                (monitor_rects(&window, monitor.as_deref()).map(|(full, _)| full), win::rect(&window))
+            else {
+                continue;
+            };
+            let (left, top) = (full.x, full.y);
+            let (right, bottom) = (full.x + full.w as i32, full.y + full.h as i32);
+            if x < left || y < top || x + w > right || y + h > bottom {
+                apply(&app, &window, &state, Level::Docked, false);
             }
         }
     });
@@ -332,7 +387,7 @@ pub fn reapply(app: &AppHandle) {
     apply(app, &window, &state, level, false);
 }
 
-fn snapshot(state: &AppState) -> WindowState {
+fn snapshot(window: &WebviewWindow, state: &AppState) -> WindowState {
     let (level, docked) = state
         .inner
         .lock()
@@ -342,12 +397,58 @@ fn snapshot(state: &AppState) -> WindowState {
         level: if docked { level } else { Level::Docked },
         docked,
         hyprland: hyprland(),
+        monitors: monitors(window).len(),
     }
 }
 
 #[tauri::command]
-pub fn window_state(state: State<'_, AppState>) -> WindowState {
-    snapshot(&state)
+pub fn window_state(window: WebviewWindow, state: State<'_, AppState>) -> WindowState {
+    snapshot(&window, &state)
+}
+
+#[tauri::command]
+pub fn cycle_monitor(
+    app: AppHandle,
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> WindowState {
+    let list = monitors(&window);
+    if list.len() < 2 {
+        return snapshot(&window, &state);
+    }
+    let (level, current) = match state.inner.lock() {
+        Ok(inner) => (inner.level, inner.monitor.clone()),
+        Err(_) => return snapshot(&window, &state),
+    };
+    let primary = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .and_then(|monitor| monitor.name().cloned());
+    let index = current
+        .or(primary)
+        .and_then(|name| {
+            list.iter()
+                .position(|monitor| monitor.name().map(|n| n.as_str()) == Some(name.as_str()))
+        })
+        .unwrap_or(0);
+    let next = &list[(index + 1) % list.len()];
+    let target = next.name().cloned();
+    if let Ok(mut inner) = state.inner.lock() {
+        inner.monitor = target.clone();
+        if !inner.docked {
+            if let Some((_, work)) = monitor_rects(&window, target.as_deref()) {
+                let height = win::rect(&window)
+                    .map(|(_, _, _, h)| h.max(1) as u32)
+                    .unwrap_or(work.h);
+                inner.floating = Some((
+                    work.x + ((work.w as i32 - inner.width as i32) / 2).max(0),
+                    work.y + ((work.h as i32 - height as i32) / 2).max(0),
+                ));
+            }
+        }
+    }
+    apply(&app, &window, &state, level, false)
 }
 
 #[tauri::command]

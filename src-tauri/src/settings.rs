@@ -15,6 +15,14 @@ const MAX_SCALE: u16 = 160;
 pub struct Settings {
     pub font_scale: u16,
     pub autostart: bool,
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    #[serde(default)]
+    pub notes_root: Option<String>,
+}
+
+fn default_theme() -> String {
+    "mocha".into()
 }
 
 impl Default for Settings {
@@ -22,13 +30,24 @@ impl Default for Settings {
         Self {
             font_scale: 100,
             autostart: true,
+            theme: default_theme(),
+            notes_root: None,
         }
     }
 }
 
+const THEMES: [&str; 3] = ["mocha", "latte", "breeze"];
+
 impl Settings {
     fn normalized(mut self) -> Self {
         self.font_scale = self.font_scale.clamp(MIN_SCALE, MAX_SCALE);
+        if !THEMES.contains(&self.theme.as_str()) {
+            self.theme = default_theme();
+        }
+        self.notes_root = self
+            .notes_root
+            .map(|path| path.trim().to_string())
+            .filter(|path| !path.is_empty());
         self
     }
 }
@@ -98,10 +117,14 @@ pub fn update_settings(
     settings: Settings,
 ) -> Settings {
     let settings = settings.normalized();
+    let previous = state.snapshot();
     if let Ok(mut inner) = state.inner.lock() {
         *inner = settings.clone();
     }
     save(&app, &settings);
     apply_autostart(&app, settings.autostart);
+    if previous.notes_root != settings.notes_root {
+        crate::notes::reconfigure(&app, &settings);
+    }
     settings
 }
