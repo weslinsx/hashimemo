@@ -14,7 +14,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Manager, State, WebviewWindow, WindowEvent,
+    AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, WindowEvent,
 };
 
 use anim::Rect;
@@ -186,6 +186,19 @@ fn level_rect(level: Level, work: Rect, right: i32, width: u32) -> Rect {
     }
 }
 
+fn motion_ms(app: &AppHandle) -> u64 {
+    app.try_state::<crate::settings::SettingsState>()
+        .map(|state| state.snapshot().motion)
+        .map(|motion| match motion.as_str() {
+            "off" => 0,
+            "fast" => 140,
+            "smooth" => 380,
+            "slow" => 520,
+            _ => 220,
+        })
+        .unwrap_or(220)
+}
+
 fn apply(
     app: &AppHandle,
     window: &WebviewWindow,
@@ -202,6 +215,7 @@ fn apply(
     };
     let level = if docked { level } else { Level::Docked };
     let rail = docked && level == Level::Docked;
+    let duration = motion_ms(app);
 
     if !rail {
         appbar::release(window);
@@ -229,7 +243,7 @@ fn apply(
         work.y + work.h as i32,
     ));
 
-    let _ = window.set_always_on_top(docked);
+    let _ = window.set_always_on_top(rail);
     let _ = window.set_skip_taskbar(true);
     let _ = window.set_resizable(!docked);
     win::remove_native_frame(window);
@@ -244,13 +258,14 @@ fn apply(
                 hypr::release();
             }
         }
-    } else if animated {
+    } else if animated && duration > 0 {
         anim::animate(
             window.clone(),
             anim::current(window),
             target,
             state.generation.clone(),
             band,
+            duration,
         );
     } else {
         win::place(window, target.x, target.y, target.w, target.h);
@@ -374,6 +389,23 @@ pub fn release_area(window: &WebviewWindow) {
     appbar::release(window);
 }
 
+pub fn show_docked(app: &AppHandle, from: Option<(i32, i32, u32, u32)>, animated: bool) {
+    let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
+        return;
+    };
+    if let Some((x, y, w, h)) = from {
+        let _ = window.set_size(PhysicalSize::new(w, h));
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+    }
+    let _ = window.show();
+    let state = app.state::<AppState>();
+    if let Ok(mut inner) = state.inner.lock() {
+        inner.docked = true;
+    }
+    apply(app, &window, &state, Level::Docked, animated);
+    let _ = window.set_focus();
+}
+
 pub fn reapply(app: &AppHandle) {
     let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
         return;
@@ -448,7 +480,7 @@ pub fn cycle_monitor(
             }
         }
     }
-    apply(&app, &window, &state, level, false)
+    apply(&app, &window, &state, level, true)
 }
 
 #[tauri::command]

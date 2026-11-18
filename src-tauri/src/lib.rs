@@ -1,4 +1,7 @@
+mod bubble;
 mod capture;
+mod pin;
+mod secure;
 mod settings;
 pub mod notes;
 mod window;
@@ -16,9 +19,20 @@ fn toggle_rail(app: &AppHandle) {
     };
     let visible = window.is_visible().unwrap_or(false);
     if visible {
-        window::release_area(&window);
-        let _ = window.hide();
+        let mode = app
+            .state::<settings::SettingsState>()
+            .snapshot()
+            .minimize_mode;
+        if mode == "bubble" {
+            let _ = bubble::minimize(app);
+        } else {
+            window::release_area(&window);
+            let _ = window.hide();
+        }
     } else {
+        if let Some(ball) = app.get_webview_window("bubble") {
+            let _ = ball.hide();
+        }
         let _ = window.show();
         window::reapply(app);
         let _ = window.set_focus();
@@ -26,17 +40,46 @@ fn toggle_rail(app: &AppHandle) {
 }
 
 fn tray(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::menu::CheckMenuItem;
+
     let show = MenuItem::with_id(app, "show", "Mostrar/ocultar", true, None::<&str>)?;
+    let bubble_mode = app
+        .state::<settings::SettingsState>()
+        .snapshot()
+        .minimize_mode
+        == "bubble";
+    let check = CheckMenuItem::with_id(
+        app,
+        "mode",
+        "Minimizar em bolinha",
+        true,
+        bubble_mode,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &check, &quit])?;
+    let toggler = check.clone();
 
     let mut builder = TrayIconBuilder::with_id("main")
         .tooltip("HashiMemo — Ctrl+Alt+N")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id.as_ref() {
+        .on_menu_event(move |app, event| match event.id.as_ref() {
             "quit" => app.exit(0),
             "show" => toggle_rail(app),
+            "mode" => {
+                let state = app.state::<settings::SettingsState>();
+                let mut next = state.snapshot();
+                next.minimize_mode = if next.minimize_mode == "bubble" {
+                    "hide".into()
+                } else {
+                    "bubble".into()
+                };
+                let bubble = next.minimize_mode == "bubble";
+                state.update(next.clone());
+                settings::save(app, &next);
+                let _ = toggler.set_checked(bubble);
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -77,6 +120,9 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(ball) = app.get_webview_window("bubble") {
+                let _ = ball.hide();
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -90,6 +136,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .manage(window::AppState::default())
+        .manage(secure::Vault::default())
         .setup(|app| {
             let handle = app.handle();
             let settings = settings::SettingsState::new(handle);
@@ -98,6 +145,7 @@ pub fn run() {
 
             window::init(handle)?;
             window::watch_monitors(handle.clone());
+            bubble::init(handle);
             notes::init(handle)?;
             notes::start_reminders(handle.clone());
             tray(handle)?;
@@ -118,6 +166,26 @@ pub fn run() {
             notes::update_note,
             notes::delete_note,
             notes::search_notes,
+            notes::set_protected,
+            notes::open_notes_dir,
+            notes::save_pasted_image,
+            bubble::minimize_to_bubble,
+            bubble::bubble_snap,
+            bubble::bubble_restore,
+            bubble::bubble_reset,
+            bubble::bubble_position,
+            bubble::bubble_move,
+            bubble::bubble_drag_start,
+            bubble::bubble_locked,
+            bubble::bubble_toggle_lock,
+            bubble::bubble_menu_open,
+            bubble::bubble_menu_close,
+            pin::pin_status,
+            pin::pin_create,
+            pin::pin_unlock,
+            pin::pin_lock,
+            pin::pin_change,
+            pin::pin_remove,
             capture::capture_window
         ])
         .build(tauri::generate_context!())

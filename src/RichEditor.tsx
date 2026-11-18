@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { EditorContent, useEditor, type Editor as TiptapEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
@@ -11,6 +12,8 @@ type Props = {
   onChange: (markdown: string) => void;
   onCapture: () => Promise<Capture | null>;
   onError?: (message: string) => void;
+  onRemind?: () => void;
+  reminding?: boolean;
 };
 
 function Button({
@@ -39,7 +42,17 @@ function Button({
   );
 }
 
-export function RichEditor({ value, onChange, onCapture, onError }: Props) {
+function base64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
+  }
+  return btoa(binary);
+}
+
+export function RichEditor({ value, onChange, onCapture, onError, onRemind, reminding }: Props) {
   const emit = useRef(value);
   const change = useRef(onChange);
   const capture = useRef(onCapture);
@@ -66,6 +79,29 @@ export function RichEditor({ value, onChange, onCapture, onError }: Props) {
     editorProps: {
       attributes: {
         class: "hashi-prose flex-1 overflow-y-auto px-2.5 py-2 text-sm leading-relaxed outline-none",
+      },
+      handlePaste: (view, event) => {
+        const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
+          file.type.startsWith("image/"),
+        );
+        if (files.length === 0) return false;
+        event.preventDefault();
+        void (async () => {
+          for (const file of files) {
+            try {
+              const data = base64(await file.arrayBuffer());
+              const saved = await invoke<string>("save_pasted_image", { data });
+              const node = view.state.schema.nodes.image.create({
+                src: convertFileSrc(saved),
+                alt: file.name || "imagem",
+              });
+              view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView());
+            } catch (error) {
+              fail.current?.(`falha ao colar a imagem: ${String(error)}`);
+            }
+          }
+        })();
+        return true;
       },
     },
     onCreate: ({ editor: instance }) => enableDrag(instance),
@@ -95,6 +131,36 @@ export function RichEditor({ value, onChange, onCapture, onError }: Props) {
     if (editor.isFocused) return;
     editor.commands.setContent(value, { emitUpdate: false });
   }, [editor, value]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom;
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "b") {
+        event.preventDefault();
+        editor.chain().focus().toggleBold().run();
+      } else if (key === "i") {
+        event.preventDefault();
+        editor.chain().focus().toggleItalic().run();
+      } else if (key === "u") {
+        event.preventDefault();
+        editor.chain().focus().toggleUnderline().run();
+      } else if (event.shiftKey && key === "x") {
+        event.preventDefault();
+        editor.chain().focus().toggleStrike().run();
+      } else if (event.shiftKey && key === "8") {
+        event.preventDefault();
+        editor.chain().focus().toggleBulletList().run();
+      } else if (event.shiftKey && key === "7") {
+        event.preventDefault();
+        editor.chain().focus().toggleOrderedList().run();
+      }
+    };
+    dom.addEventListener("keydown", onKey);
+    return () => dom.removeEventListener("keydown", onKey);
+  }, [editor]);
 
   const shot = async () => {
     if (!editor) return;
@@ -132,18 +198,18 @@ export function RichEditor({ value, onChange, onCapture, onError }: Props) {
   return (
     <>
       <div className="mx-3 flex items-center gap-0.5 rounded-md border border-surface0/60 bg-mantle/60 px-1 py-0.5">
-        <Button active={editor?.isActive("bold")} title="Negrito" onClick={() => run((e) => e.chain().focus().toggleBold().run())}>
+        <Button active={editor?.isActive("bold")} title="Negrito (Ctrl+B)" onClick={() => run((e) => e.chain().focus().toggleBold().run())}>
           <span className="font-semibold">B</span>
         </Button>
-        <Button active={editor?.isActive("italic")} title="Itálico" onClick={() => run((e) => e.chain().focus().toggleItalic().run())}>
+        <Button active={editor?.isActive("italic")} title="Itálico (Ctrl+I)" onClick={() => run((e) => e.chain().focus().toggleItalic().run())}>
           <span className="italic">I</span>
         </Button>
-        <Button active={editor?.isActive("strike")} title="Tachado" onClick={() => run((e) => e.chain().focus().toggleStrike().run())}>
+        <Button active={editor?.isActive("strike")} title="Tachado (Ctrl+Shift+X)" onClick={() => run((e) => e.chain().focus().toggleStrike().run())}>
           <span className="line-through">S</span>
         </Button>
         <Button
           active={editor?.isActive("underline")}
-          title="Sublinhado"
+          title="Sublinhado (Ctrl+U)"
           onClick={() => run((e) => e.chain().focus().toggleUnderline().run())}
         >
           <span className="underline">U</span>
@@ -153,10 +219,17 @@ export function RichEditor({ value, onChange, onCapture, onError }: Props) {
         </Button>
         <Button
           active={editor?.isActive("bulletList")}
-          title="Lista"
+          title="Lista com marcadores (Ctrl+Shift+8)"
           onClick={() => run((e) => e.chain().focus().toggleBulletList().run())}
         >
           •
+        </Button>
+        <Button
+          active={editor?.isActive("orderedList")}
+          title="Lista numerada (Ctrl+Shift+7)"
+          onClick={() => run((e) => e.chain().focus().toggleOrderedList().run())}
+        >
+          1.
         </Button>
         <Button
           active={editor?.isActive("heading", { level: 2 })}
@@ -172,6 +245,13 @@ export function RichEditor({ value, onChange, onCapture, onError }: Props) {
             <path d="M5.5 4l.8-1.5h3.4L10.5 4" />
           </svg>
         </Button>
+        {onRemind && (
+          <Button active={reminding} title="Lembrete" onClick={onRemind}>
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.4">
+              <path d="M4 7a4 4 0 0 1 8 0c0 3 1.2 4 1.2 4H2.8S4 10 4 7zM6.5 13a1.5 1.5 0 0 0 3 0" />
+            </svg>
+          </Button>
+        )}
       </div>
 
       <div className="mx-3 flex min-h-0 flex-1 flex-col rounded-md border border-surface0/60 bg-mantle/60">

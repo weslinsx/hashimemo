@@ -53,6 +53,7 @@ export function inline(text: string, key = "i"): ReactNode[] {
     if (part.startsWith("![") && part.includes("](")) {
       const alt = part.slice(2, part.indexOf("]("));
       const url = part.slice(part.indexOf("](") + 2, -1);
+      if (!url.trim() || url.startsWith("blob:")) return null;
       return (
         <img
           key={id}

@@ -1,5 +1,0 @@
-######### Sugestões, Erros e Melhorias HashiMemo #########
-## Apague os que já foram corrigidos.
-
-1 - Conferir com a tela desligada do RustDesk: captura inserindo imagem, arrastar de grupos e ordenação recentes/antigas
-2 - Se a captura ainda falhar, usar o botão "md" e copiar a mensagem do banner de aviso

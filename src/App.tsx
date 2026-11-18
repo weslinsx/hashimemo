@@ -1,7 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { Md } from "./md";
+import { Kami } from "./Kami";
 import { RichEditor, type Capture } from "./RichEditor";
 
 type Level = "Docked" | "Focus" | "Max";
@@ -18,6 +30,9 @@ type Settings = {
   autostart: boolean;
   theme: string;
   notes_root: string | null;
+  motion: string;
+  autosave: boolean;
+  minimize_mode: string;
 };
 
 type Note = {
@@ -29,11 +44,14 @@ type Note = {
   order: number;
   pinned: boolean;
   hidden: boolean;
+  protected: boolean;
   remind_at: string;
   created: string;
   updated: string;
   mtime: number;
 };
+
+type PinStatus = { set: boolean; unlocked: boolean; fails: number };
 
 const THEMES = [
   { id: "mocha", label: "Catppuccin Mocha" },
@@ -41,7 +59,28 @@ const THEMES = [
   { id: "breeze", label: "Breeze Dark" },
 ];
 
-const COLORS = ["mauve", "blue", "green", "peach", "red", "yellow", "teal", "pink"];
+const MOTIONS = [
+  { id: "off", label: "Desligado" },
+  { id: "fast", label: "Ágil" },
+  { id: "fluid", label: "Fluido" },
+  { id: "smooth", label: "Sereno" },
+  { id: "slow", label: "Cadenciado" },
+];
+
+const COLORS = [
+  "mauve",
+  "blue",
+  "green",
+  "peach",
+  "red",
+  "yellow",
+  "teal",
+  "pink",
+  "lavender",
+  "sapphire",
+  "maroon",
+  "rosewater",
+];
 
 const ACCENT: Record<string, string> = {
   mauve: "var(--color-mauve)",
@@ -52,6 +91,10 @@ const ACCENT: Record<string, string> = {
   yellow: "var(--color-yellow)",
   teal: "var(--color-teal)",
   pink: "var(--color-pink)",
+  lavender: "var(--color-lavender)",
+  sapphire: "var(--color-sapphire)",
+  maroon: "var(--color-maroon)",
+  rosewater: "var(--color-rosewater)",
 };
 
 function toLocalInput(iso: string): string {
@@ -91,27 +134,6 @@ function relative(iso: string): string {
   if (hours < 24) return `há ${hours} h`;
   const days = Math.round(hours / 24);
   return days === 1 ? "ontem" : `há ${days} d`;
-}
-
-function Mark({ size = 18 }: { size?: number }) {
-  return (
-    <svg viewBox="0 0 32 32" width={size} height={size} aria-hidden="true">
-      <defs>
-        <linearGradient id="mark" x1="4" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="var(--color-mauve)" />
-          <stop offset="1" stopColor="var(--color-blue)" />
-        </linearGradient>
-      </defs>
-      <rect x="1.5" y="1.5" width="29" height="29" rx="8.5" fill="url(#mark)" />
-      <g fill="var(--color-crust)">
-        <rect x="6.5" y="9" width="9" height="1.9" rx="0.95" />
-        <rect x="6.5" y="13.6" width="11.5" height="1.9" rx="0.95" />
-        <rect x="6.5" y="18.2" width="7" height="1.9" rx="0.95" />
-        <rect x="6.5" y="22.8" width="4.5" height="1.9" rx="0.95" />
-      </g>
-      <rect x="21" y="9" width="3.4" height="15.8" rx="1.7" fill="var(--color-crust)" opacity="0.8" />
-    </svg>
-  );
 }
 
 function IconDock({ active }: { active: boolean }) {
@@ -154,18 +176,25 @@ function NoteCard({
   note,
   onOpen,
   onContext,
+  onPointerDown,
 }: {
   note: Note;
   onOpen: () => void;
   onContext: (event: MouseEvent) => void;
+  onPointerDown?: (event: ReactPointerEvent) => void;
 }) {
   const accent = ACCENT[note.color] ?? "var(--color-mauve)";
-  const preview = note.body.replace(/^#+ .*\n/, "").trim();
+  const preview = note.body
+    .replace(/^#+ .*\n/, "")
+    .replace(/^\[Image \d+\]\s*$/gm, "")
+    .trim();
   return (
     <article
+      data-note={note.id}
+      onPointerDown={onPointerDown}
       onClick={onOpen}
       onContextMenu={onContext}
-      className="rail-card group relative cursor-pointer overflow-hidden px-3 py-2.5"
+      className="rail-card group relative cursor-pointer touch-none overflow-hidden px-3 py-2.5"
     >
       <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: accent }} />
       <header className="mb-1 flex items-center gap-2 pl-1.5">
@@ -204,7 +233,7 @@ function NoteCard({
             {clock(note.remind_at)}
           </span>
         )}
-        <span className="ml-auto tabular-nums">{relative(note.updated)}</span>
+        <span className="ml-auto tabular-nums">{relative(note.created)}</span>
       </footer>
     </article>
   );
@@ -389,7 +418,9 @@ function Editor({
   onDelete,
   onCapture,
   onError,
+  onSave,
   indent = false,
+  inline = false,
 }: {
   note: Note;
   groups: string[];
@@ -398,16 +429,22 @@ function Editor({
   onDelete: () => void;
   onCapture: () => Promise<Capture | null>;
   onError?: (message: string) => void;
+  onSave: () => void;
   indent?: boolean;
+  inline?: boolean;
 }) {
   const [remindOpen, setRemindOpen] = useState(false);
   const [raw, setRaw] = useState(false);
 
   return (
     <div
-      className={`absolute inset-y-0 right-0 z-20 flex flex-col bg-base editor-enter ${
-        indent ? "left-[360px] border-l border-surface0/70" : "left-0"
-      }`}
+      className={
+        inline
+          ? "relative z-10 flex min-h-0 w-full flex-1 flex-col bg-base level-enter"
+          : `absolute inset-y-0 right-0 z-20 flex flex-col bg-base editor-enter ${
+              indent ? "left-[360px] border-l border-surface0/70" : "left-0"
+            }`
+      }
     >
       <div className="flex items-center gap-2 border-b border-surface0/70 px-3 py-2">
         <button
@@ -415,6 +452,13 @@ function Editor({
           className="rounded bg-surface0/70 px-2 py-1 text-xs text-subtext1 transition hover:bg-surface1"
         >
           ← voltar
+        </button>
+        <button
+          onClick={onSave}
+          title="Salvar agora"
+          className="rounded bg-mauve/20 px-2 py-1 text-xs text-mauve transition hover:bg-mauve/30"
+        >
+          salvar
         </button>
         <span className="ml-auto text-[0.65rem] text-overlay0">{relative(note.updated)}</span>
         <button
@@ -427,17 +471,6 @@ function Editor({
           <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
             <path d="M6 2h4l-.5 4 2 2v1.5H4.5V8l2-2z" />
             <path d="M8 9.5V14" />
-          </svg>
-        </button>
-        <button
-          onClick={() => setRemindOpen((value) => !value)}
-          title="Lembrete"
-          className={`rounded p-1.5 transition hover:bg-surface0 ${
-            note.remind_at ? "text-yellow" : "text-overlay0"
-          }`}
-        >
-          <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
-            <path d="M4 7a4 4 0 0 1 8 0c0 3 1.2 4 1.2 4H2.8S4 10 4 7zM6.5 13a1.5 1.5 0 0 0 3 0" />
           </svg>
         </button>
         <button
@@ -464,19 +497,19 @@ function Editor({
             groups={groups}
             onChange={(group) => onChange({ ...note, group })}
           />
-          <div className="ml-auto flex items-center gap-1">
-            {COLORS.map((color) => (
-              <button
-                key={color}
-                onClick={() => onChange({ ...note, color })}
-                title={color}
-                className={`h-4 w-4 rounded-full transition ${
-                  note.color === color ? "ring-2 ring-text/70 ring-offset-1 ring-offset-base" : "opacity-60 hover:opacity-100"
-                }`}
-                style={{ background: ACCENT[color] }}
-              />
-            ))}
-          </div>
+        </div>
+        <div className="mx-3 flex flex-wrap items-center gap-1.5">
+          {COLORS.map((color) => (
+            <button
+              key={color}
+              onClick={() => onChange({ ...note, color })}
+              title={color}
+              className={`h-3.5 w-3.5 rounded-full transition ${
+                note.color === color ? "ring-2 ring-text/70 ring-offset-1 ring-offset-base" : "opacity-60 hover:opacity-100"
+              }`}
+              style={{ background: ACCENT[color] }}
+            />
+          ))}
         </div>
 
         {remindOpen && (
@@ -516,6 +549,8 @@ function Editor({
             onChange={(body) => onChange({ ...note, body })}
             onCapture={onCapture}
             onError={onError}
+            onRemind={() => setRemindOpen((value) => !value)}
+            reminding={Boolean(note.remind_at)}
           />
         )}
         <div className="mx-3 flex items-center gap-1 text-[0.6rem] text-overlay0">
@@ -544,15 +579,21 @@ function SettingsPanel({
   settings,
   notesPath,
   hidden,
+  pin,
   onChange,
   onUnhide,
+  onPin,
+  onLock,
   onClose,
 }: {
   settings: Settings;
   notesPath: string;
   hidden: Note[];
+  pin: PinStatus;
   onChange: (next: Settings) => void;
   onUnhide: (note: Note) => void;
+  onPin: (mode: "create" | "unlock" | "change" | "remove") => void;
+  onLock: () => void;
   onClose: () => void;
 }) {
   const [root, setRoot] = useState(settings.notes_root ?? "");
@@ -582,6 +623,39 @@ function SettingsPanel({
             {THEMES.map((theme) => (
               <option key={theme.id} value={theme.id}>
                 {theme.label}
+              </option>
+            ))}
+          </select>
+        </section>
+
+        <section>
+          <label htmlFor="minimize" className="mb-2 block text-subtext1">
+            Ao minimizar
+          </label>
+          <select
+            id="minimize"
+            value={settings.minimize_mode}
+            onChange={(event) => onChange({ ...settings, minimize_mode: event.target.value })}
+            className="w-full rounded-md border border-surface0/60 bg-base px-2 py-1.5 text-sm outline-none focus:border-mauve/70"
+          >
+            <option value="bubble">Bolinha (Kami)</option>
+            <option value="hide">Só ocultar</option>
+          </select>
+        </section>
+
+        <section>
+          <label htmlFor="motion" className="mb-2 block text-subtext1">
+            Animação
+          </label>
+          <select
+            id="motion"
+            value={settings.motion}
+            onChange={(event) => onChange({ ...settings, motion: event.target.value })}
+            className="w-full rounded-md border border-surface0/60 bg-base px-2 py-1.5 text-sm outline-none focus:border-mauve/70"
+          >
+            {MOTIONS.map((motion) => (
+              <option key={motion.id} value={motion.id}>
+                {motion.label}
               </option>
             ))}
           </select>
@@ -622,6 +696,22 @@ function SettingsPanel({
           </label>
         </section>
 
+        <section className="flex items-start gap-3">
+          <input
+            id="autosave"
+            type="checkbox"
+            checked={settings.autosave}
+            onChange={(event) => onChange({ ...settings, autosave: event.target.checked })}
+            className="mt-1 h-4 w-4 accent-mauve"
+          />
+          <label htmlFor="autosave" className="text-subtext1">
+            Salvamento automático
+            <span className="mt-0.5 block text-xs text-overlay0">
+              Desligado: a nota só é gravada quando você clica em Salvar.
+            </span>
+          </label>
+        </section>
+
         <section className="border-t border-surface0/60 pt-4">
           <label htmlFor="notes-root" className="mb-1.5 block text-subtext1">
             Pasta das notas
@@ -641,6 +731,13 @@ function SettingsPanel({
             >
               aplicar
             </button>
+            <button
+              onClick={() => void invoke("open_notes_dir").catch(() => {})}
+              title="Abrir a pasta de notas"
+              className="rounded-md bg-surface0 px-2 py-1 text-xs text-subtext1 transition hover:bg-surface1"
+            >
+              abrir
+            </button>
           </div>
           <p className="mt-1.5 break-all text-[0.65rem] text-overlay0">
             vazio = padrão (~/HashiMemo/notes) · atual: {notesPath}
@@ -649,27 +746,78 @@ function SettingsPanel({
 
         <section className="border-t border-surface0/60 pt-4">
           <div className="mb-2 flex items-baseline justify-between">
-            <span className="text-subtext1">Notas ocultas</span>
+            <span className="text-subtext1">Notas protegidas</span>
             <span className="text-xs text-overlay0">{hidden.length}</span>
           </div>
-          {hidden.length === 0 ? (
-            <p className="text-xs text-overlay0">
-              Nenhuma. Use o botão direito na nota → Ocultar.
-            </p>
-          ) : (
-            <ul className="space-y-1">
-              {hidden.map((note) => (
-                <li key={note.id} className="flex items-center gap-2 text-xs">
-                  <span className="truncate text-subtext0">{note.title || "Sem título"}</span>
+          {!pin.set ? (
+            <div className="space-y-1.5">
+              <p className="text-xs leading-relaxed text-overlay0">
+                Ocultar uma nota cifra o conteúdo com um PIN. Sem o PIN, não há como ler.
+              </p>
+              <button
+                onClick={() => onPin("create")}
+                className="rounded-md bg-surface0 px-2 py-1 text-xs text-subtext1 transition hover:bg-surface1"
+              >
+                criar PIN
+              </button>
+            </div>
+          ) : pin.unlocked ? (
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-subtext0">desbloqueado</span>
+                <div className="ml-auto flex gap-1">
                   <button
-                    onClick={() => onUnhide(note)}
-                    className="ml-auto shrink-0 rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1"
+                    onClick={() => onPin("change")}
+                    className="rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1"
                   >
-                    mostrar
+                    alterar
                   </button>
-                </li>
-              ))}
-            </ul>
+                  <button
+                    onClick={() => onPin("remove")}
+                    className="rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1"
+                  >
+                    remover
+                  </button>
+                  <button
+                    onClick={onLock}
+                    className="rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1"
+                  >
+                    travar
+                  </button>
+                </div>
+              </div>
+              {hidden.length === 0 ? (
+                <p className="text-overlay0">Nenhuma nota protegida. Botão direito na nota → Ocultar.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {hidden.map((note) => (
+                    <li key={note.id} className="flex items-center gap-2">
+                      <span className="truncate text-subtext0">
+                        {note.title || "Nota protegida"}
+                      </span>
+                      <button
+                        onClick={() => onUnhide(note)}
+                        className="ml-auto shrink-0 rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1"
+                      >
+                        mostrar
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-subtext0">
+                {hidden.length} nota(s) cifrada(s) — 4 tentativas erradas apagam
+              </span>
+              <button
+                onClick={() => onPin("unlock")}
+                className="ml-auto shrink-0 rounded bg-surface0 px-2 py-1 text-subtext1 transition hover:bg-surface1"
+              >
+                desbloquear
+              </button>
+            </div>
           )}
         </section>
 
@@ -686,6 +834,10 @@ function SettingsPanel({
           <p className="flex justify-between gap-3">
             <span>Voltar ao rail</span>
             <kbd className="rounded bg-surface0/70 px-1.5 py-0.5 text-subtext1">Esc</kbd>
+          </p>
+          <p className="flex justify-between gap-3">
+            <span>Versão</span>
+            <span className="tabular-nums text-subtext1">0.3.1</span>
           </p>
         </section>
       </div>
@@ -781,6 +933,87 @@ function GroupMenu({
   );
 }
 
+function PinDialog({
+  mode,
+  error,
+  onSubmit,
+  onClose,
+}: {
+  mode: "create" | "unlock" | "change" | "remove";
+  error: string;
+  onSubmit: (value: string, next?: string) => void;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const [next, setNext] = useState("");
+  const [local, setLocal] = useState("");
+  const titles = {
+    create: "Criar PIN",
+    unlock: "Desbloquear notas",
+    change: "Alterar PIN",
+    remove: "Remover PIN",
+  };
+  const hints = {
+    create: "De 4 a 8 dígitos. Sem ele as notas protegidas não abrem.",
+    unlock: "4 tentativas erradas apagam as notas protegidas.",
+    change: "O PIN atual cifra as notas; o novo passa a valer para todas.",
+    remove: "Remove o PIN e devolve todas as notas ocultas à lista.",
+  };
+  const digits = (text: string) => /^\d{4,8}$/.test(text);
+  const submit = () => {
+    if (!digits(value)) return setLocal("use de 4 a 8 dígitos");
+    if (mode === "change" && !digits(next)) return setLocal("o novo PIN precisa de 4 a 8 dígitos");
+    setLocal("");
+    onSubmit(value, mode === "change" ? next : undefined);
+  };
+  return (
+    <div className="absolute inset-0 z-[70] flex items-center justify-center bg-crust/70 px-4 backdrop-blur-sm">
+      <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl pop-enter">
+        <p className="text-sm font-semibold">{titles[mode]}</p>
+        <p className="mt-1 text-xs leading-relaxed text-subtext0">{hints[mode]}</p>
+        <input
+          autoFocus
+          type="password"
+          inputMode="numeric"
+          maxLength={8}
+          value={value}
+          onChange={(event) => setValue(event.target.value.replace(/\D/g, ""))}
+          onKeyDown={(event) => event.key === "Enter" && mode !== "change" && submit()}
+          placeholder={mode === "change" ? "PIN atual" : "PIN"}
+          className="mt-3 w-full rounded-md border border-surface0/60 bg-base px-2.5 py-1.5 tracking-[0.3em] outline-none focus:border-mauve/70"
+        />
+        {mode === "change" && (
+          <input
+            type="password"
+            inputMode="numeric"
+            maxLength={8}
+            value={next}
+            onChange={(event) => setNext(event.target.value.replace(/\D/g, ""))}
+            onKeyDown={(event) => event.key === "Enter" && submit()}
+            placeholder="novo PIN"
+            className="mt-2 w-full rounded-md border border-surface0/60 bg-base px-2.5 py-1.5 tracking-[0.3em] outline-none focus:border-mauve/70"
+          />
+        )}
+        {(local || error) && <p className="mt-2 text-xs text-red">{local || error}</p>}
+        <div className="mt-3 flex justify-end gap-2 text-xs">
+          <button
+            onClick={onClose}
+            className="rounded-md px-2.5 py-1.5 text-subtext1 transition hover:bg-surface0"
+          >
+            cancelar
+          </button>
+          <button
+            onClick={submit}
+            className="rounded-md bg-mauve px-2.5 py-1.5 font-medium text-crust transition hover:bg-lavender"
+          >
+            confirmar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [win, setWin] = useState<WindowState>({ level: "Docked", docked: true, hyprland: false, monitors: 1 });
   const [settings, setSettings] = useState<Settings>({
@@ -788,6 +1021,9 @@ export default function App() {
     autostart: true,
     theme: "mocha",
     notes_root: null,
+    motion: "fluid",
+    autosave: true,
+    minimize_mode: "bubble",
   });
   const [notes, setNotes] = useState<Note[]>([]);
   const [notesPath, setNotesPath] = useState("");
@@ -798,6 +1034,13 @@ export default function App() {
   const [tab, setTab] = useState(() => localStorage.getItem("hashimemo.tab") ?? "Todos");
   const [menu, setMenu] = useState<{ note: Note; x: number; y: number } | null>(null);
   const [notice, setNotice] = useState("");
+  const [pin, setPin] = useState<PinStatus>({ set: false, unlocked: false, fails: 0 });
+  const [pinDialog, setPinDialog] = useState<{
+    mode: "create" | "unlock" | "change" | "remove";
+    action?: "hide" | "show";
+    note?: Note;
+  } | null>(null);
+  const [pinError, setPinError] = useState("");
   const [pending, setPending] = useState<Note | null>(null);
   const [groupMenu, setGroupMenu] = useState<{ name: string; x: number; y: number } | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
@@ -821,15 +1064,27 @@ export default function App() {
       return {};
     }
   });
-  const [sort, setSort] = useState<"new" | "old">(() =>
-    localStorage.getItem("hashimemo.sort") === "old" ? "old" : "new",
-  );
-  const [dragGroup, setDragGroup] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null);
-  const pointer = useRef<{ name: string; x: number; active: boolean } | null>(null);
+  const [sort, setSort] = useState<"new" | "old" | "custom">(() => {
+    const saved = localStorage.getItem("hashimemo.sort");
+    return saved === "old" || saved === "custom" ? saved : "new";
+  });
+  const [groupDrag, setGroupDrag] = useState<{
+    name: string;
+    x: number;
+    y: number;
+    index: number;
+  } | null>(null);
+  const [noteDrag, setNoteDrag] = useState<{
+    id: string;
+    label: string;
+    x: number;
+    y: number;
+    index: number;
+  } | null>(null);
   const skipClick = useRef(false);
   const saved = useRef<string>("");
   const tabsRef = useRef<HTMLElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const reload = useCallback(() => {
     invoke<Note[]>("list_notes").then(setNotes).catch(() => {});
@@ -839,6 +1094,7 @@ export default function App() {
     invoke<WindowState>("window_state").then(setWin).catch(() => {});
     invoke<Settings>("get_settings").then(setSettings).catch(() => {});
     invoke<string>("notes_dir").then(setNotesPath).catch(() => {});
+    invoke<PinStatus>("pin_status").then(setPin).catch(() => {});
     reload();
     const unlisten = listen("notes:changed", () => reload());
     return () => {
@@ -853,6 +1109,10 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme || "mocha";
   }, [settings.theme]);
+
+  useEffect(() => {
+    document.documentElement.dataset.motion = settings.motion || "fluid";
+  }, [settings.motion]);
 
   const persist = useCallback((next: Settings) => {
     setSettings(next);
@@ -894,14 +1154,40 @@ export default function App() {
     }
   }, []);
 
+  const restoreFocus = useRef(false);
+  const levelRef = useRef(win.level);
+
+  useEffect(() => {
+    levelRef.current = win.level;
+  }, [win.level]);
+
+  useEffect(() => {
+    const current = getCurrentWindow();
+    const unlisten = current.onFocusChanged(({ payload: focused }) => {
+      if (!focused && levelRef.current === "Focus") {
+        restoreFocus.current = true;
+        void setLevel("Docked");
+      } else if (focused && restoreFocus.current) {
+        restoreFocus.current = false;
+        void setLevel("Focus");
+      }
+    });
+    return () => {
+      void unlisten.then((off) => off());
+    };
+  }, [setLevel]);
+
   const open = useCallback(
     (note: Note, expand = false) => {
+      if (draft && draft.id !== note.id && JSON.stringify(draft) !== saved.current) {
+        void invoke("update_note", { note: draft }).catch(() => {});
+      }
       saved.current = JSON.stringify(note);
       setDraft(note);
       setConflict(null);
       if (expand && win.level === "Docked") void setLevel("Focus");
     },
-    [setLevel, win.level],
+    [draft, setLevel, win.level],
   );
 
   const closeEditor = useCallback(() => {
@@ -910,20 +1196,65 @@ export default function App() {
     setNotes((current) => current.map((note) => (draft && note.id === draft.id ? draft : note)));
   }, [draft]);
 
-  const createNote = useCallback(async () => {
-    try {
-      const note = await invoke<Note>("create_note", {
-        title: "",
-        body: "",
-        color: "mauve",
-        group: "",
-      });
+  const createNote = useCallback(() => {
+    const now = new Date().toISOString();
+    const note: Note = {
+      id: "",
+      title: "",
+      body: "",
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      group: tab === "Todos" ? "" : tab,
+      order: 0,
+      pinned: false,
+      hidden: false,
+      protected: false,
+      remind_at: "",
+      created: now,
+      updated: now,
+      mtime: 0,
+    };
+    saved.current = "";
+    setDraft(note);
+    setConflict(null);
+    if (win.level === "Docked") void setLevel("Focus");
+  }, [setLevel, tab, win.level]);
+
+  const commitDraft = useCallback(async () => {
+    if (!draft) return;
+    if (!draft.id) {
+      const created = await invoke<Note>("create_note", {
+        title: draft.title,
+        body: draft.body,
+        color: draft.color,
+        group: draft.group,
+      }).catch(() => null);
+      if (!created) {
+        setNotice("não consegui salvar a nota");
+        setTimeout(() => setNotice(""), 5000);
+        return;
+      }
+      const extra: Note = {
+        ...created,
+        pinned: draft.pinned,
+        hidden: draft.hidden,
+        remind_at: draft.remind_at,
+      };
+      const savedNote = await invoke<Note>("update_note", { note: extra }).catch(() => created);
+      saved.current = JSON.stringify(savedNote);
+      setDraft(savedNote);
       reload();
-      open(note, true);
-    } catch {
-      /* watcher reloads on next change */
+      return;
     }
-  }, [open, reload]);
+    const savedNote = await invoke<Note>("update_note", { note: draft }).catch(() => null);
+    if (!savedNote) {
+      setNotice("não consegui salvar a nota");
+      setTimeout(() => setNotice(""), 5000);
+      return;
+    }
+    saved.current = JSON.stringify(savedNote);
+    setDraft(savedNote);
+    reload();
+  }, [draft, reload]);
 
   const remove = useCallback(async () => {
     if (!draft) return;
@@ -965,13 +1296,73 @@ export default function App() {
 
   const toggleHidden = useCallback(
     async (note: Note) => {
-      await invoke("update_note", { note: { ...note, hidden: !note.hidden } }).catch(() => {});
+      const target = !note.hidden;
+      if (target) {
+        if (!pin.set) return setPinDialog({ mode: "create", action: "hide", note });
+        if (!pin.unlocked) return setPinDialog({ mode: "unlock", action: "hide", note });
+        await invoke("set_protected", { id: note.id, protected: true }).catch((error) => {
+          setNotice(String(error));
+          setTimeout(() => setNotice(""), 5000);
+        });
+      } else {
+        if (!pin.unlocked) return setPinDialog({ mode: "unlock", action: "show", note });
+        await invoke("set_protected", { id: note.id, protected: false }).catch((error) => {
+          setNotice(String(error));
+          setTimeout(() => setNotice(""), 5000);
+        });
+      }
       reload();
     },
-    [reload],
+    [pin.set, pin.unlocked, reload],
+  );
+
+  const lockNotes = useCallback(async () => {
+    setPin(await invoke<PinStatus>("pin_lock"));
+    setDraft(null);
+    reload();
+  }, [reload]);
+
+  const submitPin = useCallback(
+    async (value: string, next?: string) => {
+      if (!pinDialog) return;
+      setPinError("");
+      try {
+        const status = await invoke<PinStatus>(
+          pinDialog.mode === "create"
+            ? "pin_create"
+            : pinDialog.mode === "unlock"
+              ? "pin_unlock"
+              : pinDialog.mode === "change"
+                ? "pin_change"
+                : "pin_remove",
+          pinDialog.mode === "change"
+            ? { old: value, new: next }
+            : { pin: value },
+        );
+        setPin(status);
+        const action = pinDialog.action;
+        const target = pinDialog.note;
+        setPinDialog(null);
+        if (action && target) {
+          await invoke("set_protected", { id: target.id, protected: action === "hide" }).catch(
+            (error) => {
+              setNotice(String(error));
+              setTimeout(() => setNotice(""), 5000);
+            },
+          );
+        }
+        reload();
+      } catch (error) {
+        setPinError(String(error));
+        invoke<PinStatus>("pin_status").then(setPin).catch(() => {});
+        reload();
+      }
+    },
+    [pinDialog, reload],
   );
 
   const goRail = useCallback(() => {
+    restoreFocus.current = false;
     setDraft(null);
     setConflict(null);
     setMenu(null);
@@ -1002,6 +1393,7 @@ export default function App() {
   const applyDraft = useCallback(
     (next: Note) => {
       setDraft(next);
+      if (!settings.autosave || !next.id) return;
       void invoke<Note>("update_note", { note: next })
         .then((savedNote) => {
           saved.current = JSON.stringify(savedNote);
@@ -1020,19 +1412,24 @@ export default function App() {
           }
         });
     },
-    [],
+    [settings.autosave],
   );
 
   useEffect(() => {
-    if (!draft) return;
+    if (!draft || !settings.autosave) return;
+    if (!draft.id) return;
     if (JSON.stringify(draft) === saved.current) return;
     const timer = setTimeout(() => applyDraft(draft), 700);
     return () => clearTimeout(timer);
-  }, [applyDraft, draft]);
+  }, [applyDraft, draft, settings.autosave]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (pinDialog) {
+        setPinDialog(null);
+        return setPinError("");
+      }
       if (groupMenu) return setGroupMenu(null);
       if (confirmAction) return setConfirmAction(null);
       if (menu) return setMenu(null);
@@ -1043,7 +1440,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeEditor, confirmAction, draft, groupMenu, menu, panel, pending, setLevel, win.level]);
+  }, [closeEditor, confirmAction, draft, groupMenu, menu, panel, pending, pinDialog, setLevel, win.level]);
 
   const visible = useMemo(() => notes.filter((note) => !note.hidden), [notes]);
 
@@ -1075,18 +1472,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("hashimemo.pinnedGroups", JSON.stringify(pinnedGroups));
   }, [pinnedGroups]);
-
-  const moveGroup = useCallback(
-    (from: string, to: string) => {
-      if (from === to) return;
-      const current = [...groups];
-      const next = current.filter((name) => name !== from);
-      next.splice(next.indexOf(to), 0, from);
-      setGroupOrder(next);
-      localStorage.setItem("hashimemo.groups", JSON.stringify(next));
-    },
-    [groups],
-  );
 
   const shiftGroup = useCallback(
     (name: string, delta: number) => {
@@ -1154,50 +1539,237 @@ export default function App() {
 
   const startGroupDrag = (event: ReactPointerEvent, name: string) => {
     if (name === "Todos" || event.button !== 0) return;
+    const nav = tabsRef.current;
+    if (!nav) return;
+
+    const others = () =>
+      Array.from(nav.querySelectorAll<HTMLElement>("[data-group]")).filter(
+        (element) => element.dataset.group !== "Todos",
+      );
+    const slot = (clientX: number) => {
+      const list = others();
+      for (let index = 0; index < list.length; index += 1) {
+        const rect = list[index].getBoundingClientRect();
+        if (clientX < rect.left + rect.width / 2) return index;
+      }
+      return list.length;
+    };
+
     const startX = event.clientX;
-    pointer.current = { name, x: startX, active: false };
+    const startY = event.clientY;
+    let active = false;
+    skipClick.current = false;
 
     const move = (moveEvent: PointerEvent) => {
-      const state = pointer.current;
-      if (!state) return;
-      if (!state.active && Math.abs(moveEvent.clientX - startX) > 8) {
-        state.active = true;
+      if (!active) {
+        if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 8) return;
+        active = true;
         skipClick.current = true;
-        setDragGroup(name);
       }
-      if (!state.active) return;
-      const element = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
-      const holder = element instanceof HTMLElement ? element.closest("[data-group]") : null;
-      setDragOver(holder instanceof HTMLElement ? (holder.dataset.group ?? null) : null);
+      setGroupDrag({
+        name,
+        x: moveEvent.clientX,
+        y: moveEvent.clientY,
+        index: slot(moveEvent.clientX),
+      });
     };
 
     const end = (endEvent: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
-      const state = pointer.current;
-      pointer.current = null;
-      setDragGroup(null);
-      setDragOver(null);
-      if (!state?.active) return;
-      const element = document.elementFromPoint(endEvent.clientX, endEvent.clientY);
-      const holder = element instanceof HTMLElement ? element.closest("[data-group]") : null;
-      const target = holder instanceof HTMLElement ? holder.dataset.group : undefined;
-      if (target && target !== name && target !== "Todos") moveGroup(name, target);
+      window.removeEventListener("pointercancel", end);
+      setGroupDrag(null);
+      if (!active) return;
+      const original = [...groups];
+      const from = original.indexOf(name);
+      let to = slot(endEvent.clientX);
+      if (to > from) to -= 1;
+      const list = original.filter((group) => group !== name);
+      list.splice(Math.max(0, Math.min(to, list.length)), 0, name);
+      setGroupOrder(list);
+      localStorage.setItem("hashimemo.groups", JSON.stringify(list));
     };
 
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  };
+
+  const startNoteDrag = (event: ReactPointerEvent, note: Note) => {
+    if (event.button !== 0) return;
+    const container = listRef.current;
+    if (!container) return;
+
+    const cards = () => Array.from(container.querySelectorAll<HTMLElement>("[data-note]"));
+    const slot = (clientY: number) => {
+      const list = cards();
+      for (let index = 0; index < list.length; index += 1) {
+        const rect = list[index].getBoundingClientRect();
+        if (clientY < rect.top + rect.height / 2) return index;
+      }
+      return list.length;
+    };
+
+    const startY = event.clientY;
+    const startX = event.clientX;
+    let active = false;
+    skipClick.current = false;
+
+    const move = (moveEvent: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 10) return;
+        active = true;
+        skipClick.current = true;
+      }
+      setNoteDrag({
+        id: note.id,
+        label: note.title || "Sem título",
+        x: moveEvent.clientX,
+        y: moveEvent.clientY,
+        index: slot(moveEvent.clientY),
+      });
+    };
+
+    const end = (endEvent: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      setNoteDrag(null);
+      if (!active) return;
+
+      const from = ordered.findIndex((item) => item.id === note.id);
+      let to = slot(endEvent.clientY);
+      if (to > from) to -= 1;
+      const rest = ordered.filter((item) => item.id !== note.id);
+      const index = Math.max(0, Math.min(to, rest.length));
+      const previous = rest[index - 1];
+      const next = rest[index];
+      const order = !previous && !next
+        ? 1
+        : !previous
+          ? next.order - 1
+          : !next
+            ? previous.order + 1
+            : (previous.order + next.order) / 2;
+
+      setSort("custom");
+      void invoke("update_note", { note: { ...note, order } })
+        .then(() => reload())
+        .catch(() => {});
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
   };
 
   const ordered = useMemo(() => {
     const list = tab === "Todos" ? visible : visible.filter((note) => note.group.trim() === tab);
-    const direction = sort === "new" ? -1 : 1;
-    return [...list].sort(
-      (a, b) => Number(b.pinned) - Number(a.pinned) || (a.order - b.order) * direction,
-    );
+    const byCreated = (a: Note, b: Note) => a.created.localeCompare(b.created);
+    const byOrder =
+      sort === "new"
+        ? (a: Note, b: Note) => byCreated(b, a)
+        : sort === "old"
+          ? byCreated
+          : (a: Note, b: Note) => a.order - b.order;
+    return [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned) || byOrder(a, b));
   }, [sort, tab, visible]);
-  const railBlocked = win.level !== "Docked" && Boolean(draft);
+  const focusMode = win.level === "Focus";
+  const maxMode = win.level === "Max";
   const focused = win.level !== "Docked";
+  const tabIndex = tab === "Todos" ? 0 : groups.indexOf(tab) + 1;
+  const lastTab = useRef(tabIndex);
+  const [slide, setSlide] = useState<"left" | "right">("right");
+
+  useEffect(() => {
+    if (tabIndex === lastTab.current) return;
+    setSlide(tabIndex > lastTab.current ? "right" : "left");
+    lastTab.current = tabIndex;
+  }, [tabIndex]);
+
+  const [pill, setPill] = useState<{ left: number; width: number; height: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const nav = tabsRef.current;
+    if (!nav) return;
+    const element = Array.from(nav.querySelectorAll<HTMLElement>("[data-group]")).find(
+      (item) => item.dataset.group === tab,
+    );
+    if (!element) {
+      setPill(null);
+      return;
+    }
+    const navRect = nav.getBoundingClientRect();
+    const rect = element.getBoundingClientRect();
+    setPill({
+      left: rect.left - navRect.left + nav.scrollLeft,
+      width: rect.width,
+      height: rect.height,
+    });
+  }, [groups, tab, settings.font_scale, groupDrag]);
+
+  const editorNode = (inline: boolean) =>
+    draft ? (
+      <Editor
+        note={draft}
+        groups={groups}
+        onChange={applyDraft}
+        onClose={focusMode || inline ? goRail : closeEditor}
+        onSave={() => void commitDraft()}
+        onDelete={remove}
+        onCapture={capture}
+        onError={(message) => {
+          setNotice(message);
+          setTimeout(() => setNotice(""), 6000);
+        }}
+        inline={inline}
+      />
+    ) : null;
+
+  const cards = (
+    <>
+      {ordered.map((note, index) => (
+        <Fragment key={note.id}>
+          {noteDrag && noteDrag.index === index && (
+            <div className="h-[2px] shrink-0 rounded bg-mauve" />
+          )}
+          <NoteCard
+            note={note}
+            onOpen={() => {
+              if (skipClick.current) {
+                skipClick.current = false;
+                return;
+              }
+              open(note);
+            }}
+            onPointerDown={(event) => startNoteDrag(event, note)}
+            onContext={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setMenu({ note, x: event.clientX, y: event.clientY });
+            }}
+          />
+        </Fragment>
+      ))}
+      {noteDrag && noteDrag.index >= ordered.length && (
+        <div className="h-[2px] shrink-0 rounded bg-mauve" />
+      )}
+      {ordered.length === 0 && (
+        <div className="mt-6 rounded-card border border-dashed border-surface1 px-4 py-6 text-center">
+          <p className="text-sm text-subtext0">
+            {tab === "Todos" ? "Nenhuma nota ainda" : `Nenhuma nota em "${tab}"`}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-overlay0">
+            Crie pelo botão +, ou rode{" "}
+            <code className="rounded bg-surface0/70 px-1 py-0.5 text-[0.7rem] text-subtext1">
+              hashimemo new "texto"
+            </code>{" "}
+            no terminal — o rail atualiza na hora.
+          </p>
+        </div>
+      )}
+    </>
+  );
 
   return (
     <div
@@ -1209,7 +1781,7 @@ export default function App() {
         className="flex items-center gap-2 border-b border-surface0/70 px-3 py-2.5"
       >
         <div className="flex items-center gap-2">
-          <Mark />
+          <Kami size={30} />
           <span className="text-sm font-semibold tracking-tight">HashiMemo</span>
         </div>
 
@@ -1250,6 +1822,15 @@ export default function App() {
             <IconDock active={win.docked} />
           </button>
           <button
+            onClick={() => void invoke("minimize_to_bubble").catch(() => {})}
+            title="Minimizar em bolinha"
+            className="rounded-md p-1.5 text-overlay0 transition hover:bg-surface0 hover:text-text"
+          >
+            <svg viewBox="0 0 16 16" className="h-[1.05rem] w-[1.05rem]" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M4 6l4 4 4-4" />
+            </svg>
+          </button>
+          <button
             onClick={() => setPanel(true)}
             title="Configurações"
             className="rounded-md p-1.5 text-overlay0 transition hover:bg-surface0 hover:text-text"
@@ -1266,93 +1847,112 @@ export default function App() {
           if (!tabs || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
           tabs.scrollLeft += event.deltaY;
         }}
-        className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-surface0/70 px-2.5 py-1.5"
+        className="no-scrollbar relative flex shrink-0 gap-1 overflow-x-auto border-b border-surface0/70 px-2.5 py-1.5"
       >
-        {["Todos", ...groups].map((name) => (
-          <button
-            key={name}
-            data-group={name}
-            onPointerDown={(event) => startGroupDrag(event, name)}
-            onClick={() => {
-              if (skipClick.current) {
-                skipClick.current = false;
-                return;
-              }
-              setTab(name);
-            }}
-            onContextMenu={(event) => {
-              if (name === "Todos") return;
-              event.preventDefault();
-              event.stopPropagation();
-              setGroupMenu({ name, x: event.clientX, y: event.clientY });
-            }}
-            className={`flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[0.7rem] font-medium transition ${
-              tab === name
-                ? "bg-mauve/20 text-mauve"
-                : "text-overlay0 hover:bg-surface0/70 hover:text-subtext1"
-            } ${dragGroup === name ? "opacity-40" : ""} ${
-              dragOver === name ? "ring-1 ring-mauve/70" : ""
-            } ${name !== "Todos" ? "cursor-grab active:cursor-grabbing" : ""}`}
-          >
-            {pinnedGroups[name] ? (
-              <span className="h-1 w-1 rounded-full bg-yellow" />
-            ) : null}
-            {name}
-          </button>
-        ))}
-      </nav>
-
-      <main
-        className={
-          railBlocked
-            ? "w-[360px] shrink-0 overflow-hidden px-2.5 py-2.5 opacity-45 pointer-events-none"
-            : focused
-              ? "mx-auto w-full max-w-3xl flex-1 overflow-y-auto px-5 py-4"
-              : "flex-1 overflow-y-auto px-2.5 py-2.5"
-        }
-      >
-        {focused && !railBlocked && (
-          <div className="mb-3 flex items-center gap-2 text-xs text-overlay0">
-            <button
-              onClick={goRail}
-              className="rounded bg-surface0/70 px-2 py-1 text-subtext1 transition hover:bg-surface1"
-            >
-              ← rail
-            </button>
-            <span>{win.level === "Max" ? "maximizado" : "foco 70%"}</span>
-            {win.hyprland && <span className="text-sapphire">hyprland</span>}
-          </div>
+        {pill && (
+          <div
+            className="tab-pill pointer-events-none absolute top-1/2 -translate-y-1/2 rounded-full bg-mauve/20"
+            style={{ left: pill.left, width: pill.width, height: pill.height }}
+          />
         )}
-
-        <div key={tab} className={`flex flex-col gap-2 list-enter ${focused ? "" : ""}`}>
-          {ordered.map((note) => (
-            <NoteCard
-              key={note.id}
-              note={note}
-              onOpen={() => open(note)}
-              onContext={(event) => {
+        {["Todos", ...groups].map((name, index) => (
+          <Fragment key={name}>
+            {groupDrag && groupDrag.index === index - 1 && index > 0 && (
+              <span className="h-4 w-[2px] shrink-0 self-center rounded bg-mauve" />
+            )}
+            <button
+              data-group={name}
+              onPointerDown={(event) => startGroupDrag(event, name)}
+              onClick={() => {
+                if (skipClick.current) {
+                  skipClick.current = false;
+                  return;
+                }
+                setTab(name);
+              }}
+              onContextMenu={(event) => {
+                if (name === "Todos") return;
                 event.preventDefault();
                 event.stopPropagation();
-                setMenu({ note, x: event.clientX, y: event.clientY });
+                setGroupMenu({ name, x: event.clientX, y: event.clientY });
               }}
-            />
-          ))}
-          {ordered.length === 0 && (
-            <div className="mt-6 rounded-card border border-dashed border-surface1 px-4 py-6 text-center">
-              <p className="text-sm text-subtext0">
-                {tab === "Todos" ? "Nenhuma nota ainda" : `Nenhuma nota em "${tab}"`}
-              </p>
-              <p className="mt-1 text-xs leading-relaxed text-overlay0">
-                Crie pelo botão +, ou rode{" "}
-                <code className="rounded bg-surface0/70 px-1 py-0.5 text-[0.7rem] text-subtext1">
-                  hashimemo new "texto"
-                </code>{" "}
-                no terminal — o rail atualiza na hora.
-              </p>
+              className={`relative z-10 flex shrink-0 touch-none items-center gap-1 rounded-full px-2.5 py-1 text-[0.7rem] font-medium transition-colors ${
+                tab === name
+                  ? "text-mauve"
+                  : "text-overlay0 hover:bg-surface0/70 hover:text-subtext1"
+              } ${groupDrag?.name === name ? "opacity-30" : ""}`}
+            >
+              {pinnedGroups[name] ? <span className="h-1 w-1 rounded-full bg-yellow" /> : null}
+              {name}
+            </button>
+          </Fragment>
+        ))}
+        {groupDrag && groupDrag.index >= groups.length && (
+          <span className="h-4 w-[2px] shrink-0 self-center rounded bg-mauve" />
+        )}
+      </nav>
+
+      {focusMode ? (
+        <div className="flex min-h-0 flex-1">
+          <aside className="no-scrollbar w-[360px] shrink-0 overflow-y-auto border-r border-surface0/70 px-2.5 py-2.5">
+            <div key={tab} ref={listRef} className={`flex flex-col gap-2 list-${slide}`}>
+              {cards}
+            </div>
+          </aside>
+          <section className="relative flex min-h-0 flex-1 flex-col">
+            {draft ? (
+              editorNode(true)
+            ) : (
+              <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center">
+                <div className="max-w-xs">
+                  <p className="text-sm text-subtext0">Nenhuma nota aberta</p>
+                  <p className="mt-1 text-xs leading-relaxed text-overlay0">
+                    Clique numa nota à esquerda para editar aqui.
+                  </p>
+                  <div className="mt-3 flex justify-center gap-2 text-xs">
+                    <button
+                      onClick={() => void createNote()}
+                      className="rounded-md bg-surface0/70 px-2 py-1 text-subtext1 transition hover:bg-surface1"
+                    >
+                      nova nota
+                    </button>
+                    <button
+                      onClick={goRail}
+                      className="rounded-md bg-surface0/70 px-2 py-1 text-subtext1 transition hover:bg-surface1"
+                    >
+                      ← rail
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      ) : (
+        <main
+          className={
+            maxMode
+              ? "mx-auto w-full max-w-3xl flex-1 overflow-y-auto px-5 py-4"
+              : "flex-1 overflow-y-auto px-2.5 py-2.5"
+          }
+        >
+          {maxMode && (
+            <div className="mb-3 flex items-center gap-2 text-xs text-overlay0">
+              <button
+                onClick={goRail}
+                className="rounded bg-surface0/70 px-2 py-1 text-subtext1 transition hover:bg-surface1"
+              >
+                ← rail
+              </button>
+              <span>maximizado</span>
+              {win.hyprland && <span className="text-sapphire">hyprland</span>}
             </div>
           )}
-        </div>
-      </main>
+          <div key={tab} ref={listRef} className={`flex flex-col gap-2 list-${slide}`}>
+            {cards}
+          </div>
+        </main>
+      )}
 
       <footer className="flex items-center gap-2 border-t border-surface0/70 px-3 py-1.5 text-[0.65rem] text-overlay0">
         <span className="flex items-center gap-1.5">
@@ -1361,52 +1961,72 @@ export default function App() {
         </span>
         <span className="text-surface2">·</span>
         <span>{ordered.length} notas</span>
-        <button
-          onClick={() => setSort((current) => (current === "new" ? "old" : "new"))}
-          title={
-            sort === "new"
-              ? "Mais novas no topo — clique para inverter"
-              : "Mais antigas no topo — clique para inverter"
-          }
-          className="flex items-center gap-1 rounded px-1 py-0.5 transition hover:bg-surface0 hover:text-text"
-        >
-          <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6">
-            {sort === "new" ? <path d="M8 13V3M4 7l4-4 4 4" /> : <path d="M8 3v10M4 9l4 4 4-4" />}
-          </svg>
-          {sort === "new" ? "recentes" : "antigas"}
-        </button>
-        {win.monitors > 1 && (
+        <div className="ml-auto flex items-center gap-1">
           <button
-            onClick={() => void cycleMonitor()}
-            disabled={busy}
-            title="Mover para a outra tela"
-            className="flex items-center gap-1 rounded px-1 py-0.5 transition hover:bg-surface0 hover:text-text disabled:opacity-50"
+            onClick={() =>
+              setSort((current) =>
+                current === "new" ? "old" : current === "old" ? "custom" : "new",
+              )
+            }
+            title={
+              sort === "new"
+                ? "Recentes no topo"
+                : sort === "old"
+                  ? "Antigas no topo"
+                  : "Ordem personalizada"
+            }
+            className="rounded p-1 transition hover:bg-surface0 hover:text-text"
           >
-            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.4">
-              <rect x="1.5" y="3" width="8" height="10" rx="1.2" />
-              <rect x="10.5" y="3" width="4" height="10" rx="1.2" />
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6">
+              {sort === "new" ? (
+                <path d="M8 13V3M4 7l4-4 4 4" />
+              ) : sort === "old" ? (
+                <path d="M8 3v10M4 9l4 4 4-4" />
+              ) : (
+                <>
+                  <path d="M4 5h8M4 11h8" />
+                  <path d="M6 3v4M10 9v4" opacity="0.7" />
+                </>
+              )}
             </svg>
-            tela
           </button>
-        )}
-        <span className="ml-auto tabular-nums">v0.3.1</span>
+          {win.monitors > 1 && (
+            <button
+              onClick={() => void cycleMonitor()}
+              disabled={busy}
+              title="Mover para a outra tela"
+              className="rounded p-1 transition hover:bg-surface0 hover:text-text disabled:opacity-50"
+            >
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.4">
+                <rect x="1.5" y="3" width="8" height="10" rx="1.2" />
+                <rect x="10.5" y="3" width="4" height="10" rx="1.2" />
+              </svg>
+            </button>
+          )}
+        </div>
       </footer>
 
-      {draft && (
+      {groupDrag && (
+        <div
+          className="drag-ghost pointer-events-none fixed z-[60] -translate-y-1/2 rounded-full bg-mauve px-2.5 py-1 text-[0.7rem] font-medium text-crust shadow-lg"
+          style={{ left: groupDrag.x + 12, top: groupDrag.y }}
+        >
+          {groupDrag.name}
+        </div>
+      )}
+
+      {noteDrag && (
+        <div
+          className="drag-ghost pointer-events-none fixed z-[60] max-w-[220px] -translate-y-1/2 truncate rounded-md border border-mauve/60 bg-mantle/95 px-2 py-1 text-xs font-medium text-text shadow-lg"
+          style={{ left: Math.min(noteDrag.x + 14, window.innerWidth - 230), top: noteDrag.y }}
+        >
+          {noteDrag.label}
+        </div>
+      )}
+
+      {draft && !focusMode && (
         <>
-          <Editor
-            note={draft}
-            groups={groups}
-            onChange={applyDraft}
-            onClose={closeEditor}
-            onDelete={remove}
-            onCapture={capture}
-            onError={(message) => {
-              setNotice(message);
-              setTimeout(() => setNotice(""), 6000);
-            }}
-            indent={railBlocked}
-          />
+          {editorNode(false)}
           {notice && (
             <div className="absolute inset-x-0 bottom-0 z-30 border-t border-red/40 bg-red/10 px-3 py-2 text-xs text-red">
               {notice}
@@ -1450,8 +2070,11 @@ export default function App() {
           settings={settings}
           notesPath={notesPath}
           hidden={notes.filter((note) => note.hidden)}
+          pin={pin}
           onChange={persist}
           onUnhide={(note) => void toggleHidden(note)}
+          onPin={(mode) => setPinDialog({ mode })}
+          onLock={() => void lockNotes()}
           onClose={() => setPanel(false)}
         />
       )}
@@ -1473,7 +2096,7 @@ export default function App() {
 
       {confirmAction && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-crust/70 px-4 backdrop-blur-sm">
-          <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl level-enter">
+          <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl pop-enter">
             <p className="text-sm font-semibold">{confirmAction.title}</p>
             <p className="mt-1 break-words text-xs leading-relaxed text-subtext0">
               {confirmAction.body}
@@ -1496,9 +2119,21 @@ export default function App() {
         </div>
       )}
 
+      {pinDialog && (
+        <PinDialog
+          mode={pinDialog.mode}
+          error={pinError}
+          onSubmit={(value, next) => void submitPin(value, next)}
+          onClose={() => {
+            setPinDialog(null);
+            setPinError("");
+          }}
+        />
+      )}
+
       {pending && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-crust/70 px-4 backdrop-blur-sm">
-          <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl level-enter">
+          <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl pop-enter">
             <p className="text-sm font-semibold">Excluir nota?</p>
             <p className="mt-1 break-words text-xs leading-relaxed text-subtext0">
               {pending.title || "Sem título"} — o arquivo é removido da pasta de notas.

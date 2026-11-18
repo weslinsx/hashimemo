@@ -9,9 +9,20 @@ use serde_yaml_ng::{Mapping, Value};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 
-pub const COLORS: [&str; 8] = [
-    "mauve", "blue", "green", "peach", "red", "yellow", "teal", "pink",
+pub const COLORS: [&str; 12] = [
+    "mauve", "blue", "green", "peach", "red", "yellow", "teal", "pink", "lavender", "sapphire",
+    "maroon", "rosewater",
 ];
+
+fn random_color() -> String {
+    let mut byte = [0u8; 1];
+    let index = if getrandom::fill(&mut byte).is_ok() {
+        byte[0] as usize % COLORS.len()
+    } else {
+        0
+    };
+    COLORS[index].to_string()
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Note {
@@ -26,6 +37,12 @@ pub struct Note {
     pub hidden: bool,
     #[serde(default)]
     pub remind_at: String,
+    #[serde(default)]
+    pub protected: bool,
+    #[serde(skip)]
+    pub secret_title: String,
+    #[serde(skip)]
+    pub secret_body: String,
     pub created: String,
     pub updated: String,
     pub mtime: u64,
@@ -213,6 +230,9 @@ impl Store {
             pinned: flag(&map, "pinned"),
             hidden: flag(&map, "hidden"),
             remind_at: text(&map, "remind_at"),
+            protected: flag(&map, "protected"),
+            secret_title: text(&map, "secret_title"),
+            secret_body: text(&map, "secret_body"),
             created: text(&map, "created"),
             updated: text(&map, "updated"),
             mtime,
@@ -285,21 +305,33 @@ impl Store {
     fn render(&self, note: &Note) -> String {
         let mut map = note.extra.clone();
         for key in [
-            "id", "title", "color", "group", "order", "pinned", "hidden", "remind_at", "created",
-            "updated",
+            "id", "title", "color", "group", "order", "pinned", "hidden", "remind_at", "protected",
+            "secret_title", "secret_body", "created", "updated",
         ] {
             map.shift_remove(Value::from(key));
         }
 
         let mut head = Mapping::new();
         head.insert(Value::from("id"), Value::from(note.id.clone()));
-        head.insert(Value::from("title"), Value::from(note.title.clone()));
+        let (title, _body) = if note.protected {
+            (String::new(), String::new())
+        } else {
+            (note.title.clone(), note.body.clone())
+        };
+        head.insert(Value::from("title"), Value::from(title));
         head.insert(Value::from("color"), Value::from(note.color.clone()));
         head.insert(Value::from("group"), Value::from(note.group.clone()));
         head.insert(Value::from("order"), Value::from(note.order));
         head.insert(Value::from("pinned"), Value::from(note.pinned));
         head.insert(Value::from("hidden"), Value::from(note.hidden));
         head.insert(Value::from("remind_at"), Value::from(note.remind_at.clone()));
+        head.insert(Value::from("protected"), Value::from(note.protected));
+        if !note.secret_title.is_empty() {
+            head.insert(Value::from("secret_title"), Value::from(note.secret_title.clone()));
+        }
+        if !note.secret_body.is_empty() {
+            head.insert(Value::from("secret_body"), Value::from(note.secret_body.clone()));
+        }
         head.insert(Value::from("created"), Value::from(note.created.clone()));
         head.insert(Value::from("updated"), Value::from(note.updated.clone()));
         for (key, value) in map {
@@ -307,7 +339,12 @@ impl Store {
         }
 
         let yaml = serde_yaml_ng::to_string(&head).unwrap_or_default();
-        format!("---\n{}---\n\n{}\n", yaml, note.body.trim_end())
+        let body = if note.protected {
+            String::new()
+        } else {
+            note.body.trim_end().to_string()
+        };
+        format!("---\n{}---\n\n{}\n", yaml, body)
     }
 
     fn write(&self, note: &Note) -> Result<Note, Error> {
@@ -338,12 +375,19 @@ impl Store {
             id: Uuid::now_v7().to_string(),
             title,
             body: body.to_string(),
-            color: if COLORS.contains(&color) { color } else { "mauve" }.into(),
+            color: if COLORS.contains(&color) {
+                color.into()
+            } else {
+                random_color()
+            },
             group: group.trim().to_string(),
             order,
             pinned: false,
             hidden: false,
             remind_at: String::new(),
+            protected: false,
+            secret_title: String::new(),
+            secret_body: String::new(),
             created: created.clone(),
             updated: now,
             mtime: 0,

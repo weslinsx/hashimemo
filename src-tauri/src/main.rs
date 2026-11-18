@@ -5,7 +5,7 @@ use hashimemo_lib::notes::Store;
 #[command(
     name = "hashimemo",
     version,
-    about = "Notas rÃ¡pidas em Markdown na borda da tela",
+    about = "Notas rápidas em Markdown na borda da tela",
     long_about = None
 )]
 struct Cli {
@@ -15,7 +15,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Cria uma nota; o texto vira o corpo e a primeira linha o tÃ­tulo
+    /// Cria uma nota; o texto vira o corpo e a primeira linha o título
     New {
         text: Vec<String>,
         #[arg(long)]
@@ -38,7 +38,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Busca por termo em tÃ­tulo, corpo e grupo
+    /// Busca por termo em título, corpo e grupo
     Search {
         query: Vec<String>,
         #[arg(long)]
@@ -102,7 +102,7 @@ fn truncate(text: &str, limit: usize) -> String {
     if text.chars().count() <= limit {
         return text.to_string();
     }
-    text.chars().take(limit.saturating_sub(1)).collect::<String>() + "â€¦"
+    text.chars().take(limit.saturating_sub(1)).collect::<String>() + "…"
 }
 
 fn fail(message: &str) -> ! {
@@ -149,13 +149,13 @@ fn main() {
         }
         Command::List { json } => print_notes(&store.list(), json),
         Command::Read { needle, json } => {
-            let note = store.fetch(&needle).unwrap_or_else(|| fail("nota nÃ£o encontrada"));
+            let note = store.fetch(&needle).unwrap_or_else(|| fail("nota não encontrada"));
             if json {
                 println!("{}", serde_json::to_string_pretty(&note).unwrap_or_default());
             } else {
                 println!("# {}", note.title);
                 println!(
-                    "{} Â· {} Â· {}",
+                    "{} · {} · {}",
                     note.group.is_empty().then(|| "sem grupo").unwrap_or(&note.group),
                     note.color,
                     note.updated.get(..16).unwrap_or(&note.updated)
@@ -178,7 +178,7 @@ fn main() {
             color,
             json,
         } => {
-            let mut note = store.fetch(&needle).unwrap_or_else(|| fail("nota nÃ£o encontrada"));
+            let mut note = store.fetch(&needle).unwrap_or_else(|| fail("nota não encontrada"));
             if let Some(title) = title {
                 note.title = title;
             }
@@ -208,7 +208,7 @@ fn main() {
             }
         }
         Command::Rm { needle } => {
-            let note = store.fetch(&needle).unwrap_or_else(|| fail("nota nÃ£o encontrada"));
+            let note = store.fetch(&needle).unwrap_or_else(|| fail("nota não encontrada"));
             if let Err(error) = store.delete(&note) {
                 fail(&error.to_string());
             }
