@@ -1,5 +1,5 @@
 ######### Sugestões, Erros e Melhorias HashiMemo #########
 ## Apague os que já foram corrigidos.
 
-1 - Cantos arredondados: aplicado via DWM (rail dockado e janela flutuante); falta conferir visualmente — a sessão estava bloqueada na hora da validação
-2 - Conferir se o toast do Windows aparece quando o lembrete dispara (o agendador foi testado e limpou o campo; o toast não pôde ser visto com a tela bloqueada)
+1 - Conferir com a tela desbloqueada: cantos arredondados, toast do lembrete e editor rico salvando o markdown
+2 - Referência à imagem: o título que aparece é o da janela (no Notepad++ vem o caminho do arquivo) — dá para encurtar mais se incomodar

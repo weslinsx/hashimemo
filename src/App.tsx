@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } fr
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Md } from "./md";
+import { RichEditor, type Capture } from "./RichEditor";
 
 type Level = "Docked" | "Focus" | "Max";
 
@@ -313,6 +314,7 @@ function NoteMenu({
 
 function Editor({
   note,
+  groups,
   onChange,
   onClose,
   onDelete,
@@ -320,52 +322,15 @@ function Editor({
   indent = false,
 }: {
   note: Note;
+  groups: string[];
   onChange: (next: Note) => void;
   onClose: () => void;
   onDelete: () => void;
-  onCapture: () => void;
+  onCapture: () => Promise<Capture | null>;
   indent?: boolean;
 }) {
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const [preview, setPreview] = useState(false);
   const [remindOpen, setRemindOpen] = useState(false);
-
-  const wrap = (before: string, after = before) => {
-    const el = bodyRef.current;
-    if (!el) return;
-    const { selectionStart: start, selectionEnd: end, value } = el;
-    const selected = value.slice(start, end);
-    onChange({ ...note, body: value.slice(0, start) + before + selected + after + value.slice(end) });
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + before.length, end + before.length);
-    });
-  };
-
-  const bullet = () => {
-    const el = bodyRef.current;
-    if (!el) return;
-    const { selectionStart: start, value } = el;
-    const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
-    onChange({ ...note, body: `${value.slice(0, lineStart)}- ${value.slice(lineStart)}` });
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + 2, start + 2);
-    });
-  };
-
-  const tool = (label: string, title: string, run: () => void, wide = false) => (
-    <button
-      key={title}
-      title={title}
-      onClick={run}
-      className={`rounded px-1.5 py-0.5 text-xs text-overlay0 transition hover:bg-surface0 hover:text-text ${
-        wide ? "font-semibold" : ""
-      }`}
-    >
-      {label}
-    </button>
-  );
+  const [raw, setRaw] = useState(false);
 
   return (
     <div
@@ -425,10 +390,16 @@ function Editor({
         <div className="mx-3 flex items-center gap-2">
           <input
             value={note.group}
+            list="hashimemo-groups"
             onChange={(event) => onChange({ ...note, group: event.target.value })}
             placeholder="grupo"
             className="w-32 rounded-md border border-surface0/60 bg-mantle/60 px-2 py-1 text-xs outline-none transition focus:border-mauve/70"
           />
+          <datalist id="hashimemo-groups">
+            {groups.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
           <div className="ml-auto flex items-center gap-1">
             {COLORS.map((color) => (
               <button
@@ -466,52 +437,31 @@ function Editor({
           </div>
         )}
 
-        <div className="mx-3 flex items-center gap-0.5 rounded-md border border-surface0/60 bg-mantle/60 px-1 py-0.5">
-          {tool("B", "Negrito", () => wrap("**"), true)}
-          {tool("I", "Itálico", () => wrap("*"), true)}
-          {tool("S", "Tachado", () => wrap("~~"), true)}
-          {tool("U", "Sublinhado", () => wrap("<u>", "</u>"), true)}
-          {tool("</>", "Código", () => wrap("`"))}
-          {tool("•", "Lista", bullet)}
-          {tool("#", "Título", () => wrap("## ", ""))}
-          <button
-            onClick={onCapture}
-            title="Capturar janela ativa"
-            className="rounded px-1.5 py-0.5 text-overlay0 transition hover:bg-surface0 hover:text-text"
-          >
-            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.3">
-              <rect x="1.5" y="4" width="13" height="9" rx="2" />
-              <circle cx="8" cy="8.5" r="2.4" />
-              <path d="M5.5 4l.8-1.5h3.4L10.5 4" />
-            </svg>
-          </button>
-          <button
-            onClick={() => setPreview((value) => !value)}
-            title={preview ? "Editar" : "Pré-visualizar Markdown"}
-            className={`ml-auto rounded px-1.5 py-0.5 text-xs transition hover:bg-surface0 ${
-              preview ? "text-mauve" : "text-overlay0 hover:text-text"
-            }`}
-          >
-            {preview ? "editar" : "ver"}
-          </button>
-        </div>
-
-        {preview ? (
-          <div className="mx-3 flex-1 overflow-y-auto rounded-md border border-surface0/60 bg-mantle/60 px-2.5 py-2 text-sm leading-relaxed list-enter">
-            <Md text={note.body} />
-          </div>
-        ) : (
+        {raw ? (
           <textarea
-            ref={bodyRef}
             value={note.body}
             onChange={(event) => onChange({ ...note, body: event.target.value })}
-            placeholder="Escreva em Markdown…"
+            placeholder="Markdown cru…"
             spellCheck={false}
-            className="mx-3 flex-1 resize-none rounded-md border border-surface0/60 bg-mantle/60 px-2.5 py-2 text-sm leading-relaxed outline-none transition focus:border-mauve/70"
+            className="mx-3 flex-1 resize-none rounded-md border border-surface0/60 bg-mantle/60 px-2.5 py-2 font-mono text-xs leading-relaxed outline-none transition focus:border-mauve/70"
+          />
+        ) : (
+          <RichEditor
+            key={note.id}
+            value={note.body}
+            onChange={(body) => onChange({ ...note, body })}
+            onCapture={onCapture}
           />
         )}
-        <div className="mx-3 flex items-center justify-between text-[0.6rem] text-overlay0">
+        <div className="mx-3 flex items-center gap-1 text-[0.6rem] text-overlay0">
           <span className="tabular-nums">{note.id.slice(0, 8)}</span>
+          <button
+            onClick={() => setRaw((value) => !value)}
+            title={raw ? "Usar editor" : "Editar Markdown cru"}
+            className="ml-auto rounded px-1.5 py-0.5 transition hover:bg-surface0 hover:text-text"
+          >
+            {raw ? "editor" : "md"}
+          </button>
           <span>autosave</span>
         </div>
       </div>
@@ -705,6 +655,7 @@ export default function App() {
     }
   });
   const [dragGroup, setDragGroup] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
   const saved = useRef<string>("");
   const tabsRef = useRef<HTMLElement>(null);
 
@@ -809,8 +760,8 @@ export default function App() {
     reload();
   }, [draft, reload]);
 
-  const capture = useCallback(async () => {
-    if (!draft) return;
+  const capture = useCallback(async (): Promise<Capture | null> => {
+    if (!draft) return null;
     try {
       const shot = await invoke<{
         path: string;
@@ -818,13 +769,17 @@ export default function App() {
         app: string;
         url: string | null;
       }>("capture_window");
-      const label = [shot.app, shot.title].filter(Boolean).join(" — ") || "captura";
-      const source = shot.url ? `${label} (${shot.url})` : label;
-      const block = `\n\n![${label}](${convertFileSrc(shot.path)})\n> capturado de: ${source}\n`;
-      setDraft((current) => (current ? { ...current, body: current.body.trimEnd() + block } : current));
+      const title = shot.title.length > 60 ? `${shot.title.slice(0, 57)}…` : shot.title;
+      const label = [shot.app, title].filter(Boolean).join(" — ") || "captura";
+      return {
+        src: convertFileSrc(shot.path),
+        alt: label.replace(/[[\]]/g, ""),
+        source: shot.url ? `${label} (${shot.url})` : label,
+      };
     } catch (error) {
       setNotice(String(error));
       setTimeout(() => setNotice(""), 4000);
+      return null;
     }
   }, [draft]);
 
@@ -1029,13 +984,21 @@ export default function App() {
             key={name}
             draggable={name !== "Todos"}
             onDragStart={() => setDragGroup(name)}
-            onDragEnd={() => setDragGroup(null)}
+            onDragEnd={() => {
+              setDragGroup(null);
+              setDragOver(null);
+            }}
             onDragOver={(event) => {
               if (dragGroup && dragGroup !== name && name !== "Todos") event.preventDefault();
             }}
+            onDragEnter={() => {
+              if (dragGroup && name !== "Todos") setDragOver(name);
+            }}
+            onDragLeave={() => setDragOver((current) => (current === name ? null : current))}
             onDrop={() => {
               if (dragGroup && name !== "Todos") moveGroup(dragGroup, name);
               setDragGroup(null);
+              setDragOver(null);
             }}
             onClick={() => setTab(name)}
             className={`shrink-0 rounded-full px-2.5 py-1 text-[0.7rem] font-medium transition ${
@@ -1043,8 +1006,8 @@ export default function App() {
                 ? "bg-mauve/20 text-mauve"
                 : "text-overlay0 hover:bg-surface0/70 hover:text-subtext1"
             } ${dragGroup === name ? "opacity-40" : ""} ${
-              name !== "Todos" ? "cursor-grab active:cursor-grabbing" : ""
-            }`}
+              dragOver === name ? "ring-1 ring-mauve/70" : ""
+            } ${name !== "Todos" ? "cursor-grab active:cursor-grabbing" : ""}`}
           >
             {name}
           </button>
@@ -1124,17 +1087,18 @@ export default function App() {
             tela
           </button>
         )}
-        <span className="ml-auto tabular-nums">v0.2.1</span>
+        <span className="ml-auto tabular-nums">v0.3.0</span>
       </footer>
 
       {draft && (
         <>
           <Editor
             note={draft}
+            groups={groups}
             onChange={applyDraft}
             onClose={closeEditor}
             onDelete={remove}
-            onCapture={() => void capture()}
+            onCapture={capture}
             indent={railBlocked}
           />
           {notice && (
