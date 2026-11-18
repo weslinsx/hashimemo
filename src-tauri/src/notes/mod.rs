@@ -9,6 +9,8 @@ use std::{
 
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_notification::NotificationExt;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 pub struct NotesState {
     store: Mutex<Store>,
@@ -63,6 +65,61 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 
 pub fn reconfigure(app: &AppHandle, settings: &crate::settings::Settings) {
     attach(app, Store::with_notes(settings.notes_root.clone()));
+}
+
+fn due_reminders(app: &AppHandle) {
+    let Some(state) = app.try_state::<NotesState>() else {
+        return;
+    };
+    let now = OffsetDateTime::now_utc();
+    let due: Vec<Note> = match state.store.lock() {
+        Ok(store) => store
+            .list()
+            .into_iter()
+            .filter(|note| {
+                OffsetDateTime::parse(&note.remind_at, &Rfc3339)
+                    .map(|when| when <= now)
+                    .unwrap_or(false)
+            })
+            .collect(),
+        Err(_) => return,
+    };
+    if due.is_empty() {
+        return;
+    }
+
+    for mut note in due {
+        let preview: String = note.body.lines().next().unwrap_or("").chars().take(120).collect();
+        let _ = app
+            .notification()
+            .builder()
+            .title(if note.title.is_empty() {
+                "HashiMemo".to_string()
+            } else {
+                note.title.clone()
+            })
+            .body(if preview.is_empty() {
+                "Lembrete".to_string()
+            } else {
+                preview
+            })
+            .show();
+        note.remind_at = String::new();
+        if let Ok(store) = state.store.lock() {
+            let _ = store.save(note);
+        }
+    }
+    let _ = app.emit("notes:changed", ());
+}
+
+pub fn start_reminders(app: AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(3));
+        loop {
+            due_reminders(&app);
+            std::thread::sleep(Duration::from_secs(20));
+        }
+    });
 }
 
 fn with_store<T>(state: &State<'_, NotesState>, run: impl FnOnce(&Store) -> T) -> Result<T, String> {

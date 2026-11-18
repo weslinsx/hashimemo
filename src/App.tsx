@@ -28,6 +28,7 @@ type Note = {
   order: number;
   pinned: boolean;
   hidden: boolean;
+  remind_at: string;
   created: string;
   updated: string;
   mtime: number;
@@ -51,6 +52,33 @@ const ACCENT: Record<string, string> = {
   teal: "var(--color-teal)",
   pink: "var(--color-pink)",
 };
+
+function toLocalInput(iso: string): string {
+  if (!iso) return "";
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}T${pad(
+    when.getHours(),
+  )}:${pad(when.getMinutes())}`;
+}
+
+function fromLocalInput(value: string): string {
+  if (!value) return "";
+  const when = new Date(value);
+  return Number.isNaN(when.getTime()) ? "" : when.toISOString();
+}
+
+function clock(iso: string): string {
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return "";
+  return when.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function relative(iso: string): string {
   const when = Date.parse(iso);
@@ -167,6 +195,14 @@ function NoteCard({
           <span className="h-1.5 w-1.5 rounded-full" style={{ background: accent }} />
           {note.group || "sem grupo"}
         </span>
+        {note.remind_at && (
+          <span className="flex items-center gap-1 rounded bg-yellow/15 px-1.5 py-0.5 text-yellow">
+            <svg viewBox="0 0 16 16" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <path d="M4 7a4 4 0 0 1 8 0c0 3 1.2 4 1.2 4H2.8S4 10 4 7zM6.5 13a1.5 1.5 0 0 0 3 0" />
+            </svg>
+            {clock(note.remind_at)}
+          </span>
+        )}
         <span className="ml-auto tabular-nums">{relative(note.updated)}</span>
       </footer>
     </article>
@@ -202,7 +238,7 @@ function NoteMenu({
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} onContextMenu={(e) => e.preventDefault()} />
       <div
-        className="fixed z-50 w-44 overflow-hidden rounded-lg border border-surface1/70 bg-mantle py-1 text-xs shadow-[0_18px_40px_-18px_rgb(0_0_0/0.9)]"
+        className="fixed z-50 w-44 overflow-hidden rounded-lg border border-surface1/70 bg-mantle py-1 text-xs shadow-[0_18px_40px_-18px_rgb(0_0_0/0.9)] menu-enter"
         style={{ left, top }}
       >
         <button
@@ -292,6 +328,7 @@ function Editor({
 }) {
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [preview, setPreview] = useState(false);
+  const [remindOpen, setRemindOpen] = useState(false);
 
   const wrap = (before: string, after = before) => {
     const el = bodyRef.current;
@@ -332,7 +369,7 @@ function Editor({
 
   return (
     <div
-      className={`absolute inset-y-0 right-0 z-20 flex flex-col bg-base level-enter ${
+      className={`absolute inset-y-0 right-0 z-20 flex flex-col bg-base editor-enter ${
         indent ? "left-[360px] border-l border-surface0/70" : "left-0"
       }`}
     >
@@ -354,6 +391,17 @@ function Editor({
           <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
             <path d="M6 2h4l-.5 4 2 2v1.5H4.5V8l2-2z" />
             <path d="M8 9.5V14" />
+          </svg>
+        </button>
+        <button
+          onClick={() => setRemindOpen((value) => !value)}
+          title="Lembrete"
+          className={`rounded p-1.5 transition hover:bg-surface0 ${
+            note.remind_at ? "text-yellow" : "text-overlay0"
+          }`}
+        >
+          <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
+            <path d="M4 7a4 4 0 0 1 8 0c0 3 1.2 4 1.2 4H2.8S4 10 4 7zM6.5 13a1.5 1.5 0 0 0 3 0" />
           </svg>
         </button>
         <button
@@ -396,10 +444,33 @@ function Editor({
           </div>
         </div>
 
+        {remindOpen && (
+          <div className="mx-3 flex items-center gap-2 rounded-md border border-surface0/60 bg-mantle/60 px-2 py-1 text-xs">
+            <span className="text-overlay0">lembrete</span>
+            <input
+              type="datetime-local"
+              value={toLocalInput(note.remind_at)}
+              onChange={(event) =>
+                onChange({ ...note, remind_at: fromLocalInput(event.target.value) })
+              }
+              className="min-w-0 flex-1 bg-transparent text-subtext1 outline-none"
+            />
+            {note.remind_at && (
+              <button
+                onClick={() => onChange({ ...note, remind_at: "" })}
+                className="rounded px-1.5 py-0.5 text-overlay0 transition hover:bg-surface0 hover:text-red"
+              >
+                limpar
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="mx-3 flex items-center gap-0.5 rounded-md border border-surface0/60 bg-mantle/60 px-1 py-0.5">
           {tool("B", "Negrito", () => wrap("**"), true)}
           {tool("I", "Itálico", () => wrap("*"), true)}
           {tool("S", "Tachado", () => wrap("~~"), true)}
+          {tool("U", "Sublinhado", () => wrap("<u>", "</u>"), true)}
           {tool("</>", "Código", () => wrap("`"))}
           {tool("•", "Lista", bullet)}
           {tool("#", "Título", () => wrap("## ", ""))}
@@ -426,7 +497,7 @@ function Editor({
         </div>
 
         {preview ? (
-          <div className="mx-3 flex-1 overflow-y-auto rounded-md border border-surface0/60 bg-mantle/60 px-2.5 py-2 text-sm leading-relaxed">
+          <div className="mx-3 flex-1 overflow-y-auto rounded-md border border-surface0/60 bg-mantle/60 px-2.5 py-2 text-sm leading-relaxed list-enter">
             <Md text={note.body} />
           </div>
         ) : (
@@ -1002,7 +1073,7 @@ export default function App() {
           </div>
         )}
 
-        <div className={`flex flex-col gap-2 ${focused ? "level-enter" : ""}`}>
+        <div key={tab} className={`flex flex-col gap-2 list-enter ${focused ? "" : ""}`}>
           {ordered.map((note) => (
             <NoteCard
               key={note.id}
@@ -1053,7 +1124,7 @@ export default function App() {
             tela
           </button>
         )}
-        <span className="ml-auto tabular-nums">v0.2.0</span>
+        <span className="ml-auto tabular-nums">v0.2.1</span>
       </footer>
 
       {draft && (

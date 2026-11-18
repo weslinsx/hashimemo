@@ -24,6 +24,8 @@ pub struct Note {
     pub pinned: bool,
     #[serde(default)]
     pub hidden: bool,
+    #[serde(default)]
+    pub remind_at: String,
     pub created: String,
     pub updated: String,
     pub mtime: u64,
@@ -210,6 +212,7 @@ impl Store {
             order: number(&map, "order"),
             pinned: flag(&map, "pinned"),
             hidden: flag(&map, "hidden"),
+            remind_at: text(&map, "remind_at"),
             created: text(&map, "created"),
             updated: text(&map, "updated"),
             mtime,
@@ -282,7 +285,8 @@ impl Store {
     fn render(&self, note: &Note) -> String {
         let mut map = note.extra.clone();
         for key in [
-            "id", "title", "color", "group", "order", "pinned", "hidden", "created", "updated",
+            "id", "title", "color", "group", "order", "pinned", "hidden", "remind_at", "created",
+            "updated",
         ] {
             map.shift_remove(Value::from(key));
         }
@@ -295,6 +299,7 @@ impl Store {
         head.insert(Value::from("order"), Value::from(note.order));
         head.insert(Value::from("pinned"), Value::from(note.pinned));
         head.insert(Value::from("hidden"), Value::from(note.hidden));
+        head.insert(Value::from("remind_at"), Value::from(note.remind_at.clone()));
         head.insert(Value::from("created"), Value::from(note.created.clone()));
         head.insert(Value::from("updated"), Value::from(note.updated.clone()));
         for (key, value) in map {
@@ -338,6 +343,7 @@ impl Store {
             order,
             pinned: false,
             hidden: false,
+            remind_at: String::new(),
             created: created.clone(),
             updated: now,
             mtime: 0,

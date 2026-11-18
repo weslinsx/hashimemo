@@ -233,7 +233,7 @@ fn apply(
     let _ = window.set_skip_taskbar(true);
     let _ = window.set_resizable(!docked);
     win::remove_native_frame(window);
-    win::set_round(window, !rail);
+    win::set_round(window, true);
 
     if hyprland() {
         #[cfg(target_os = "linux")]

@@ -88,6 +88,7 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .manage(window::AppState::default())
         .setup(|app| {
             let handle = app.handle();
@@ -98,6 +99,7 @@ pub fn run() {
             window::init(handle)?;
             window::watch_monitors(handle.clone());
             notes::init(handle)?;
+            notes::start_reminders(handle.clone());
             tray(handle)?;
             hotkey(handle)?;
             Ok(())

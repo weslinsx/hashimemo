@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 const INLINE =
-  /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_|~~[^~\n]+~~|`[^`\n]+`|!\[[^\]\n]*\]\([^)\s]+\)|\[[^\]\n]+\]\([^)\s]+\)|https?:\/\/[^\s)]+)/g;
+  /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_|~~[^~\n]+~~|`[^`\n]+`|<u>[^<]*<\/u>|<mark>[^<]*<\/mark>|<br\s*\/?>|!\[[^\]\n]*\]\([^)\s]+\)|\[[^\]\n]+\]\([^)\s]+\)|https?:\/\/[^\s)]+)/g;
 
 function link(url: string, label: string, key: string) {
   return (
@@ -41,6 +41,15 @@ export function inline(text: string, key = "i"): ReactNode[] {
       return <em key={id}>{part.slice(1, -1)}</em>;
     if (part.startsWith("_") && part.endsWith("_"))
       return <em key={id}>{part.slice(1, -1)}</em>;
+    if (/^<u>[\s\S]*<\/u>$/.test(part))
+      return <u key={id}>{inline(part.slice(3, -4), id)}</u>;
+    if (/^<mark>[\s\S]*<\/mark>$/.test(part))
+      return (
+        <mark key={id} className="rounded bg-yellow/30 px-0.5 text-inherit">
+          {inline(part.slice(6, -7), id)}
+        </mark>
+      );
+    if (/^<br\s*\/?>$/.test(part)) return <br key={id} />;
     if (part.startsWith("![") && part.includes("](")) {
       const alt = part.slice(2, part.indexOf("]("));
       const url = part.slice(part.indexOf("](") + 2, -1);
