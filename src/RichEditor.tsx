@@ -10,6 +10,7 @@ type Props = {
   value: string;
   onChange: (markdown: string) => void;
   onCapture: () => Promise<Capture | null>;
+  onError?: (message: string) => void;
 };
 
 function Button({
@@ -38,14 +39,16 @@ function Button({
   );
 }
 
-export function RichEditor({ value, onChange, onCapture }: Props) {
+export function RichEditor({ value, onChange, onCapture, onError }: Props) {
   const emit = useRef(value);
   const change = useRef(onChange);
   const capture = useRef(onCapture);
+  const fail = useRef(onError);
   const [, force] = useState(0);
 
   change.current = onChange;
   capture.current = onCapture;
+  fail.current = onError;
 
   const enableDrag = (instance: TiptapEditor) => {
     instance.view.dom.querySelectorAll("img").forEach((img) => {
@@ -95,17 +98,29 @@ export function RichEditor({ value, onChange, onCapture }: Props) {
 
   const shot = async () => {
     if (!editor) return;
-    const captured = await capture.current();
-    if (!captured) return;
-    editor
-      .chain()
-      .focus()
-      .setImage({ src: captured.src, alt: captured.alt })
-      .insertContent({
-        type: "blockquote",
-        content: [{ type: "paragraph", content: [{ type: "text", text: `capturado de: ${captured.source}` }] }],
-      })
-      .run();
+    try {
+      const captured = await capture.current();
+      if (!captured) return;
+      editor
+        .chain()
+        .focus()
+        .insertContent([
+          { type: "image", attrs: { src: captured.src, alt: captured.alt } },
+          {
+            type: "blockquote",
+            content: [
+              { type: "paragraph", content: [{ type: "text", text: `capturado de: ${captured.source}` }] },
+            ],
+          },
+        ])
+        .run();
+      enableDrag(editor);
+      if (!editor.getHTML().includes("<img")) {
+        fail.current?.("captura gerada, mas o editor não aceitou a imagem — use o botão md para ver o markdown");
+      }
+    } catch (error) {
+      fail.current?.(`falha ao inserir a captura: ${String(error)}`);
+    }
   };
 
   const run = (fn: (instance: TiptapEditor) => void) => {

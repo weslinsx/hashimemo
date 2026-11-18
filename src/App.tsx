@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Md } from "./md";
@@ -312,6 +312,75 @@ function NoteMenu({
   );
 }
 
+function GroupPicker({
+  value,
+  groups,
+  onChange,
+}: {
+  value: string;
+  groups: string[];
+  onChange: (name: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative shrink-0">
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setOpen(true)}
+        placeholder="grupo"
+        className="w-32 rounded-md border border-surface0/60 bg-mantle/60 py-1 pr-6 pl-2 text-xs outline-none transition focus:border-mauve/70"
+      />
+      <button
+        type="button"
+        title="Escolher grupo"
+        onClick={() => setOpen((current) => !current)}
+        className="absolute top-1/2 right-1 -translate-y-1/2 rounded px-1 text-[0.6rem] text-overlay0 transition hover:text-text"
+      >
+        ▾
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 z-30 mt-1 max-h-44 w-40 overflow-y-auto rounded-md border border-surface1/70 bg-mantle py-1 text-xs shadow-[0_18px_40px_-18px_rgb(0_0_0/0.9)] menu-enter">
+            {groups
+              .filter((name) => name !== value)
+              .map((name) => (
+                <button
+                  key={name}
+                  onClick={() => {
+                    onChange(name);
+                    setOpen(false);
+                  }}
+                  className="block w-full truncate px-2.5 py-1 text-left text-subtext1 transition hover:bg-surface0 hover:text-text"
+                >
+                  {name}
+                </button>
+              ))}
+            {groups.length === 0 && <p className="px-2.5 py-1 text-overlay0">nenhum grupo ainda</p>}
+            {value.trim() && !groups.includes(value.trim()) && (
+              <p className="border-t border-surface0/70 px-2.5 py-1 text-[0.65rem] text-overlay0">
+                Enter cria “{value.trim()}”
+              </p>
+            )}
+            {value && (
+              <button
+                onClick={() => {
+                  onChange("");
+                  setOpen(false);
+                }}
+                className="w-full border-t border-surface0/70 px-2.5 py-1 text-left text-overlay0 transition hover:bg-surface0 hover:text-red"
+              >
+                sem grupo
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Editor({
   note,
   groups,
@@ -319,6 +388,7 @@ function Editor({
   onClose,
   onDelete,
   onCapture,
+  onError,
   indent = false,
 }: {
   note: Note;
@@ -327,6 +397,7 @@ function Editor({
   onClose: () => void;
   onDelete: () => void;
   onCapture: () => Promise<Capture | null>;
+  onError?: (message: string) => void;
   indent?: boolean;
 }) {
   const [remindOpen, setRemindOpen] = useState(false);
@@ -388,18 +459,11 @@ function Editor({
           className="mx-3 rounded-md border border-surface0/60 bg-mantle/60 px-2.5 py-2 text-sm font-semibold outline-none transition focus:border-mauve/70"
         />
         <div className="mx-3 flex items-center gap-2">
-          <input
+          <GroupPicker
             value={note.group}
-            list="hashimemo-groups"
-            onChange={(event) => onChange({ ...note, group: event.target.value })}
-            placeholder="grupo"
-            className="w-32 rounded-md border border-surface0/60 bg-mantle/60 px-2 py-1 text-xs outline-none transition focus:border-mauve/70"
+            groups={groups}
+            onChange={(group) => onChange({ ...note, group })}
           />
-          <datalist id="hashimemo-groups">
-            {groups.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
           <div className="ml-auto flex items-center gap-1">
             {COLORS.map((color) => (
               <button
@@ -451,6 +515,7 @@ function Editor({
             value={note.body}
             onChange={(body) => onChange({ ...note, body })}
             onCapture={onCapture}
+            onError={onError}
           />
         )}
         <div className="mx-3 flex items-center gap-1 text-[0.6rem] text-overlay0">
@@ -628,6 +693,94 @@ function SettingsPanel({
   );
 }
 
+function GroupMenu({
+  name,
+  count,
+  pinned,
+  x,
+  y,
+  onPin,
+  onMove,
+  onClear,
+  onDelete,
+  onClose,
+}: {
+  name: string;
+  count: number;
+  pinned: boolean;
+  x: number;
+  y: number;
+  onPin: () => void;
+  onMove: (delta: number) => void;
+  onClear: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const left = Math.max(8, Math.min(x, window.innerWidth - 200));
+  const top = Math.max(8, Math.min(y, window.innerHeight - 220));
+  const item =
+    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-subtext1 transition hover:bg-surface0 hover:text-text";
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} onContextMenu={(e) => e.preventDefault()} />
+      <div
+        className="fixed z-50 w-48 overflow-hidden rounded-lg border border-surface1/70 bg-mantle py-1 text-xs shadow-[0_18px_40px_-18px_rgb(0_0_0/0.9)] menu-enter"
+        style={{ left, top }}
+      >
+        <p className="truncate px-3 py-1 text-[0.6rem] tracking-wider text-overlay0 uppercase">
+          {name} · {count}
+        </p>
+        <button
+          onClick={() => {
+            onPin();
+            onClose();
+          }}
+          className={item}
+        >
+          {pinned ? "Desafixar grupo" : "Fixar no início"}
+        </button>
+        <button
+          onClick={() => {
+            onMove(-1);
+            onClose();
+          }}
+          className={item}
+        >
+          Mover para ←
+        </button>
+        <button
+          onClick={() => {
+            onMove(1);
+            onClose();
+          }}
+          className={item}
+        >
+          Mover para →
+        </button>
+        <div className="my-1 border-t border-surface0/70" />
+        <button
+          onClick={() => {
+            onClear();
+            onClose();
+          }}
+          className={item}
+        >
+          Limpar grupo
+        </button>
+        <button
+          onClick={() => {
+            onDelete();
+            onClose();
+          }}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red/90 transition hover:bg-red/15 hover:text-red"
+        >
+          Excluir grupo
+        </button>
+      </div>
+    </>
+  );
+}
+
 export default function App() {
   const [win, setWin] = useState<WindowState>({ level: "Docked", docked: true, hyprland: false, monitors: 1 });
   const [settings, setSettings] = useState<Settings>({
@@ -646,6 +799,12 @@ export default function App() {
   const [menu, setMenu] = useState<{ note: Note; x: number; y: number } | null>(null);
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState<Note | null>(null);
+  const [groupMenu, setGroupMenu] = useState<{ name: string; x: number; y: number } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    body: string;
+    run: () => void;
+  } | null>(null);
   const [groupOrder, setGroupOrder] = useState<string[]>(() => {
     try {
       const raw = localStorage.getItem("hashimemo.groups");
@@ -654,8 +813,21 @@ export default function App() {
       return [];
     }
   });
+  const [pinnedGroups, setPinnedGroups] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem("hashimemo.pinnedGroups");
+      return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [sort, setSort] = useState<"new" | "old">(() =>
+    localStorage.getItem("hashimemo.sort") === "old" ? "old" : "new",
+  );
   const [dragGroup, setDragGroup] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const pointer = useRef<{ name: string; x: number; active: boolean } | null>(null);
+  const skipClick = useRef(false);
   const saved = useRef<string>("");
   const tabsRef = useRef<HTMLElement>(null);
 
@@ -861,6 +1033,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (groupMenu) return setGroupMenu(null);
+      if (confirmAction) return setConfirmAction(null);
       if (menu) return setMenu(null);
       if (pending) return setPending(null);
       if (panel) return setPanel(false);
@@ -869,7 +1043,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeEditor, draft, menu, panel, pending, setLevel, win.level]);
+  }, [closeEditor, confirmAction, draft, groupMenu, menu, panel, pending, setLevel, win.level]);
 
   const visible = useMemo(() => notes.filter((note) => !note.hidden), [notes]);
 
@@ -877,6 +1051,9 @@ export default function App() {
     const found = new Set<string>();
     for (const note of visible) if (note.group.trim()) found.add(note.group.trim());
     return [...found].sort((a, b) => {
+      const pinnedLeft = pinnedGroups[a] ?? 0;
+      const pinnedRight = pinnedGroups[b] ?? 0;
+      if (pinnedLeft !== pinnedRight) return pinnedRight - pinnedLeft;
       const left = groupOrder.indexOf(a);
       const right = groupOrder.indexOf(b);
       if (left === -1 && right === -1) return a.localeCompare(b, "pt-BR");
@@ -884,12 +1061,20 @@ export default function App() {
       if (right === -1) return -1;
       return left - right;
     });
-  }, [groupOrder, visible]);
+  }, [groupOrder, pinnedGroups, visible]);
 
   useEffect(() => {
     localStorage.setItem("hashimemo.tab", tab);
     if (tab !== "Todos" && !groups.includes(tab)) setTab("Todos");
   }, [groups, tab]);
+
+  useEffect(() => {
+    localStorage.setItem("hashimemo.sort", sort);
+  }, [sort]);
+
+  useEffect(() => {
+    localStorage.setItem("hashimemo.pinnedGroups", JSON.stringify(pinnedGroups));
+  }, [pinnedGroups]);
 
   const moveGroup = useCallback(
     (from: string, to: string) => {
@@ -903,10 +1088,114 @@ export default function App() {
     [groups],
   );
 
-  const ordered = useMemo(
-    () => (tab === "Todos" ? visible : visible.filter((note) => note.group.trim() === tab)),
-    [tab, visible],
+  const shiftGroup = useCallback(
+    (name: string, delta: number) => {
+      const list = [...groups];
+      const index = list.indexOf(name);
+      const target = index + delta;
+      if (index < 0 || target < 0 || target >= list.length) return;
+      [list[index], list[target]] = [list[target], list[index]];
+      setGroupOrder(list);
+      localStorage.setItem("hashimemo.groups", JSON.stringify(list));
+    },
+    [groups],
   );
+
+  const pinGroup = useCallback((name: string) => {
+    setPinnedGroups((current) => {
+      const next = { ...current };
+      if (next[name]) {
+        delete next[name];
+      } else {
+        next[name] = Date.now();
+      }
+      return next;
+    });
+  }, []);
+
+  const clearGroup = useCallback(
+    (name: string) => {
+      const targets = notes.filter((note) => note.group.trim() === name);
+      setConfirmAction({
+        title: `Limpar "${name}"?`,
+        body: `As ${targets.length} notas do grupo continuam existindo, mas ficam sem grupo.`,
+        run: () => {
+          void Promise.all(
+            targets.map((note) => invoke("update_note", { note: { ...note, group: "" } }).catch(() => {})),
+          ).then(() => {
+            setConfirmAction(null);
+            reload();
+          });
+        },
+      });
+    },
+    [notes, reload],
+  );
+
+  const deleteGroup = useCallback(
+    (name: string) => {
+      const targets = notes.filter((note) => note.group.trim() === name);
+      setConfirmAction({
+        title: `Excluir "${name}"?`,
+        body: `Isso apaga as ${targets.length} notas deste grupo da pasta de notas.`,
+        run: () => {
+          void Promise.all(
+            targets.map((note) => invoke("delete_note", { id: note.id }).catch(() => {})),
+          ).then(() => {
+            if (draft && targets.some((note) => note.id === draft.id)) setDraft(null);
+            setConfirmAction(null);
+            reload();
+          });
+        },
+      });
+    },
+    [draft, notes, reload],
+  );
+
+  const startGroupDrag = (event: ReactPointerEvent, name: string) => {
+    if (name === "Todos" || event.button !== 0) return;
+    const startX = event.clientX;
+    pointer.current = { name, x: startX, active: false };
+
+    const move = (moveEvent: PointerEvent) => {
+      const state = pointer.current;
+      if (!state) return;
+      if (!state.active && Math.abs(moveEvent.clientX - startX) > 8) {
+        state.active = true;
+        skipClick.current = true;
+        setDragGroup(name);
+      }
+      if (!state.active) return;
+      const element = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
+      const holder = element instanceof HTMLElement ? element.closest("[data-group]") : null;
+      setDragOver(holder instanceof HTMLElement ? (holder.dataset.group ?? null) : null);
+    };
+
+    const end = (endEvent: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      const state = pointer.current;
+      pointer.current = null;
+      setDragGroup(null);
+      setDragOver(null);
+      if (!state?.active) return;
+      const element = document.elementFromPoint(endEvent.clientX, endEvent.clientY);
+      const holder = element instanceof HTMLElement ? element.closest("[data-group]") : null;
+      const target = holder instanceof HTMLElement ? holder.dataset.group : undefined;
+      if (target && target !== name && target !== "Todos") moveGroup(name, target);
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+  };
+
+  const ordered = useMemo(() => {
+    const list = tab === "Todos" ? visible : visible.filter((note) => note.group.trim() === tab);
+    const direction = sort === "new" ? -1 : 1;
+    return [...list].sort(
+      (a, b) => Number(b.pinned) - Number(a.pinned) || (a.order - b.order) * direction,
+    );
+  }, [sort, tab, visible]);
   const railBlocked = win.level !== "Docked" && Boolean(draft);
   const focused = win.level !== "Docked";
 
@@ -982,26 +1271,22 @@ export default function App() {
         {["Todos", ...groups].map((name) => (
           <button
             key={name}
-            draggable={name !== "Todos"}
-            onDragStart={() => setDragGroup(name)}
-            onDragEnd={() => {
-              setDragGroup(null);
-              setDragOver(null);
+            data-group={name}
+            onPointerDown={(event) => startGroupDrag(event, name)}
+            onClick={() => {
+              if (skipClick.current) {
+                skipClick.current = false;
+                return;
+              }
+              setTab(name);
             }}
-            onDragOver={(event) => {
-              if (dragGroup && dragGroup !== name && name !== "Todos") event.preventDefault();
+            onContextMenu={(event) => {
+              if (name === "Todos") return;
+              event.preventDefault();
+              event.stopPropagation();
+              setGroupMenu({ name, x: event.clientX, y: event.clientY });
             }}
-            onDragEnter={() => {
-              if (dragGroup && name !== "Todos") setDragOver(name);
-            }}
-            onDragLeave={() => setDragOver((current) => (current === name ? null : current))}
-            onDrop={() => {
-              if (dragGroup && name !== "Todos") moveGroup(dragGroup, name);
-              setDragGroup(null);
-              setDragOver(null);
-            }}
-            onClick={() => setTab(name)}
-            className={`shrink-0 rounded-full px-2.5 py-1 text-[0.7rem] font-medium transition ${
+            className={`flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[0.7rem] font-medium transition ${
               tab === name
                 ? "bg-mauve/20 text-mauve"
                 : "text-overlay0 hover:bg-surface0/70 hover:text-subtext1"
@@ -1009,6 +1294,9 @@ export default function App() {
               dragOver === name ? "ring-1 ring-mauve/70" : ""
             } ${name !== "Todos" ? "cursor-grab active:cursor-grabbing" : ""}`}
           >
+            {pinnedGroups[name] ? (
+              <span className="h-1 w-1 rounded-full bg-yellow" />
+            ) : null}
             {name}
           </button>
         ))}
@@ -1073,6 +1361,20 @@ export default function App() {
         </span>
         <span className="text-surface2">·</span>
         <span>{ordered.length} notas</span>
+        <button
+          onClick={() => setSort((current) => (current === "new" ? "old" : "new"))}
+          title={
+            sort === "new"
+              ? "Mais novas no topo — clique para inverter"
+              : "Mais antigas no topo — clique para inverter"
+          }
+          className="flex items-center gap-1 rounded px-1 py-0.5 transition hover:bg-surface0 hover:text-text"
+        >
+          <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6">
+            {sort === "new" ? <path d="M8 13V3M4 7l4-4 4 4" /> : <path d="M8 3v10M4 9l4 4 4-4" />}
+          </svg>
+          {sort === "new" ? "recentes" : "antigas"}
+        </button>
         {win.monitors > 1 && (
           <button
             onClick={() => void cycleMonitor()}
@@ -1087,7 +1389,7 @@ export default function App() {
             tela
           </button>
         )}
-        <span className="ml-auto tabular-nums">v0.3.0</span>
+        <span className="ml-auto tabular-nums">v0.3.1</span>
       </footer>
 
       {draft && (
@@ -1099,6 +1401,10 @@ export default function App() {
             onClose={closeEditor}
             onDelete={remove}
             onCapture={capture}
+            onError={(message) => {
+              setNotice(message);
+              setTimeout(() => setNotice(""), 6000);
+            }}
             indent={railBlocked}
           />
           {notice && (
@@ -1148,6 +1454,46 @@ export default function App() {
           onUnhide={(note) => void toggleHidden(note)}
           onClose={() => setPanel(false)}
         />
+      )}
+
+      {groupMenu && (
+        <GroupMenu
+          name={groupMenu.name}
+          count={notes.filter((note) => note.group.trim() === groupMenu.name).length}
+          pinned={Boolean(pinnedGroups[groupMenu.name])}
+          x={groupMenu.x}
+          y={groupMenu.y}
+          onPin={() => pinGroup(groupMenu.name)}
+          onMove={(delta) => shiftGroup(groupMenu.name, delta)}
+          onClear={() => clearGroup(groupMenu.name)}
+          onDelete={() => deleteGroup(groupMenu.name)}
+          onClose={() => setGroupMenu(null)}
+        />
+      )}
+
+      {confirmAction && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-crust/70 px-4 backdrop-blur-sm">
+          <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl level-enter">
+            <p className="text-sm font-semibold">{confirmAction.title}</p>
+            <p className="mt-1 break-words text-xs leading-relaxed text-subtext0">
+              {confirmAction.body}
+            </p>
+            <div className="mt-3 flex justify-end gap-2 text-xs">
+              <button
+                onClick={() => setConfirmAction(null)}
+                className="rounded-md px-2.5 py-1.5 text-subtext1 transition hover:bg-surface0"
+              >
+                cancelar
+              </button>
+              <button
+                onClick={confirmAction.run}
+                className="rounded-md bg-red/90 px-2.5 py-1.5 font-medium text-crust transition hover:bg-red"
+              >
+                confirmar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {pending && (
