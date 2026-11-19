@@ -33,7 +33,7 @@ const SOURCE: Record<KamiPose, string> = {
 
 const MOTION: Record<KamiPose, string> = {
   idle: "kami-breathe",
-  rosto: "kami-blink",
+  rosto: "",
   espiando: "kami-peek",
   dormindo: "kami-breathe",
   cochilando: "kami-breathe-slow",

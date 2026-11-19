@@ -7,7 +7,7 @@ pub mod notes;
 mod window;
 
 use tauri::{
-    AppHandle, Manager,
+    AppHandle, Emitter, Manager,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
@@ -24,6 +24,8 @@ fn toggle_rail(app: &AppHandle) {
             .snapshot()
             .minimize_mode;
         if mode == "bubble" {
+            let _ = app.emit_to("main", "app:collapse", ());
+            std::thread::sleep(std::time::Duration::from_millis(230));
             let _ = bubble::minimize(app);
         } else {
             window::release_area(&window);
@@ -43,6 +45,7 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
     use tauri::menu::CheckMenuItem;
 
     let show = MenuItem::with_id(app, "show", "Mostrar/ocultar", true, None::<&str>)?;
+    let reset = MenuItem::with_id(app, "reset", "Resetar janelas", true, None::<&str>)?;
     let bubble_mode = app
         .state::<settings::SettingsState>()
         .snapshot()
@@ -57,7 +60,7 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &check, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &check, &reset, &quit])?;
     let toggler = check.clone();
 
     let mut builder = TrayIconBuilder::with_id("main")
@@ -67,6 +70,7 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "quit" => app.exit(0),
             "show" => toggle_rail(app),
+            "reset" => window::reset_windows(app),
             "mode" => {
                 let state = app.state::<settings::SettingsState>();
                 let mut next = state.snapshot();

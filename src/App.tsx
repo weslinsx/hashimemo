@@ -1059,6 +1059,7 @@ export default function App() {
   const [tab, setTab] = useState(() => localStorage.getItem("hashimemo.tab") ?? "Todos");
   const [menu, setMenu] = useState<{ note: Note; x: number; y: number } | null>(null);
   const [notice, setNotice] = useState("");
+  const [collapsing, setCollapsing] = useState(false);
   const [pin, setPin] = useState<PinStatus>({ set: false, unlocked: false, fails: 0 });
   const [pinDialog, setPinDialog] = useState<{
     mode: "create" | "unlock" | "change" | "remove";
@@ -1122,8 +1123,13 @@ export default function App() {
     invoke<PinStatus>("pin_status").then(setPin).catch(() => {});
     reload();
     const unlisten = listen("notes:changed", () => reload());
+    const collapse = listen("app:collapse", () => {
+      setCollapsing(true);
+      window.setTimeout(() => setCollapsing(false), 600);
+    });
     return () => {
       void unlisten.then((off) => off());
+      void collapse.then((off) => off());
     };
   }, [reload]);
 
@@ -1799,7 +1805,9 @@ export default function App() {
 
   return (
     <div
-      className="relative flex h-full flex-col bg-base text-text"
+      className={`relative flex h-full flex-col bg-base text-text transition-[transform,opacity] duration-300 ${
+        collapsing ? "app-collapsing" : ""
+      }`}
       onContextMenu={(event) => event.preventDefault()}
     >
       <header
@@ -1848,7 +1856,13 @@ export default function App() {
             <IconDock active={win.docked} />
           </button>
           <button
-            onClick={() => void invoke("minimize_to_bubble").catch(() => {})}
+            onClick={() => {
+              setCollapsing(true);
+              window.setTimeout(() => {
+                setCollapsing(false);
+                void invoke("minimize_to_bubble").catch(() => {});
+              }, 250);
+            }}
             title="Minimizar em bolinha"
             className="rounded-md p-1.5 text-overlay0 transition hover:bg-surface0 hover:text-text"
           >

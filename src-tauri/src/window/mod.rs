@@ -440,6 +440,22 @@ pub fn reapply(app: &AppHandle) {
     apply(app, &window, &state, level, false);
 }
 
+pub fn reset_windows(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
+        return;
+    };
+    let state = app.state::<AppState>();
+    if let Ok(mut inner) = state.inner.lock() {
+        inner.docked = true;
+        inner.floating = None;
+        inner.monitor = None;
+    }
+    apply(app, &window, &state, Level::Docked, true);
+    if let Some(ball) = app.get_webview_window("bubble") {
+        let _ = ball.hide();
+    }
+}
+
 fn snapshot(window: &WebviewWindow, state: &AppState) -> WindowState {
     let (level, docked) = state
         .inner
@@ -489,17 +505,7 @@ pub fn cycle_monitor(
     let target = next.name().cloned();
     if let Ok(mut inner) = state.inner.lock() {
         inner.monitor = target.clone();
-        if !inner.docked {
-            if let Some((_, work)) = monitor_rects(&window, target.as_deref()) {
-                let height = win::rect(&window)
-                    .map(|(_, _, _, h)| h.max(1) as u32)
-                    .unwrap_or(work.h);
-                inner.floating = Some((
-                    work.x + ((work.w as i32 - inner.width as i32) / 2).max(0),
-                    work.y + ((work.h as i32 - height as i32) / 2).max(0),
-                ));
-            }
-        }
+        inner.floating = None;
     }
     apply(&app, &window, &state, level, true)
 }
@@ -522,6 +528,21 @@ pub fn toggle_dock(
 ) -> WindowState {
     if let Ok(mut inner) = state.inner.lock() {
         inner.docked = !inner.docked;
+        if !inner.docked {
+            if let Some((x, y)) = inner.floating {
+                let inside = monitor_rects(&window, inner.monitor.as_deref())
+                    .map(|(full, _)| {
+                        x >= full.x
+                            && y >= full.y
+                            && x + inner.width as i32 <= full.x + full.w as i32
+                            && y + 240 <= full.y + full.h as i32
+                    })
+                    .unwrap_or(false);
+                if !inside {
+                    inner.floating = None;
+                }
+            }
+        }
     }
     apply(&app, &window, &state, Level::Docked, true)
 }
