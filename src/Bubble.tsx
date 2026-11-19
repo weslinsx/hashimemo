@@ -117,7 +117,7 @@ export function Bubble() {
             openMenu();
           }}
           title="Abrir HashiMemo (botão direito: opções)"
-          className={`kami-bubble relative flex h-[64px] w-[64px] items-center justify-center rounded-full border border-surface1/70 bg-base/95 shadow-[0_10px_30px_-10px_rgb(0_0_0/0.9)] transition-transform active:scale-95 ${
+          className={`soap-bubble relative flex h-[64px] w-[64px] items-center justify-center rounded-full transition-transform active:scale-95 ${
             locked ? "cursor-pointer" : "cursor-grab hover:scale-105"
           } ${pressed ? "scale-95" : ""}`}
         >
