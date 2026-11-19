@@ -186,6 +186,38 @@ fn level_rect(level: Level, work: Rect, right: i32, width: u32) -> Rect {
     }
 }
 
+pub fn shrink_sync(app: &AppHandle, target: (i32, i32, u32, u32)) {
+    let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
+        return;
+    };
+    let _ = window.set_resizable(true);
+    let (fx, fy, fw, fh) = match win::rect(&window) {
+        Some((x, y, w, h)) => (x, y, w.max(1) as u32, h.max(1) as u32),
+        None => target,
+    };
+    let duration = motion_ms(app).max(120);
+    let steps = (duration / 16).max(4);
+    for step in 1..=steps {
+        let t = step as f32 / steps as f32;
+        let inv = 1.0 - t;
+        let e = 1.0 - inv * inv * inv;
+        let x = fx as f32 + (target.0 - fx) as f32 * e;
+        let y = fy as f32 + (target.1 - fy) as f32 * e;
+        let w = fw as f32 + (target.2 as f32 - fw as f32) * e;
+        let h = fh as f32 + (target.3 as f32 - fh as f32) * e;
+        win::place(
+            &window,
+            x.round() as i32,
+            y.round() as i32,
+            (w.round() as u32).max(1),
+            (h.round() as u32).max(1),
+        );
+        std::thread::sleep(std::time::Duration::from_millis(16));
+    }
+    win::place(&window, target.0, target.1, target.2, target.3);
+    let _ = window.set_resizable(false);
+}
+
 pub fn fade_out(app: &AppHandle, window: &WebviewWindow) {
     let duration = motion_ms(app);
     if duration == 0 {
@@ -202,10 +234,6 @@ pub fn fade_out(app: &AppHandle, window: &WebviewWindow) {
         }
         win::set_opacity(&handle, 0);
     });
-}
-
-pub fn animation_ms(app: &AppHandle) -> u64 {
-    motion_ms(app)
 }
 
 pub fn reset_opacity(app: &AppHandle) {

@@ -569,18 +569,17 @@ function Editor({
   );
 }
 
-const OPENCODE_HELP = `Cole este texto na IA que você usa (ChatGPT, Claude, Gemini, Copilot ou um agente local) para ela aprender a ler e gravar aqui.
+const OPENCODE_HELP = `Cole na IA que você usa (ChatGPT, Claude, Gemini, Copilot ou agente local) para ela ler e gravar nas suas notas.
 
 ---
 
-Você tem acesso ao HashiMemo, um app local de notas em Markdown na borda da tela.
+Você tem acesso ao HashiMemo, um app local de notas em Markdown.
 
-- Pasta das notas: \`C:\\Users\\voxdata\\HashiMemo\\notes\` (um .md por nota, frontmatter YAML com title, group, color, pinned, hidden, remind_at, protected).
-- CLI no PATH: \`hashimemo\`.
-- Comandos: \`hashimemo list\`, \`hashimemo search "termo"\`, \`hashimemo read "id ou trecho"\`, \`hashimemo new --group OpenCode --title "Título" "corpo"\`, \`hashimemo edit "trecho" --append "linha"\`, \`hashimemo context --notes 5\`, \`hashimemo path\`.
-- Notas com \`protected: true\` estão cifradas e não podem ser lidas por você.
-- Ao criar algo para o usuário ler (decisão, pendência, resumo), grave no grupo \`OpenCode\` e responda só com o título.
-- Nunca copie senhas ou segredos da nota para o chat.`;
+- As notas ficam na pasta configurada no app (Configurações → Pasta das notas): um arquivo .md por nota, com frontmatter YAML (title, group, color, pinned, hidden, remind_at, protected).
+- Se o CLI \`hashimemo\` estiver disponível: \`list\`, \`search "termo"\`, \`read "id"\`, \`new --group OpenCode --title "Título" "corpo"\`, \`edit "trecho" --append "linha"\`, \`context --notes 5\`, \`path\`.
+- Notas com \`protected: true\` estão cifradas e ilegíveis para você.
+- Grave no grupo \`OpenCode\` o que for para o usuário ler e responda apenas com o título.
+- Nunca copie senhas ou segredos para o chat.`;
 
 function copyText(value: string) {
   void navigator.clipboard.writeText(value).catch(() => {});
@@ -850,7 +849,7 @@ function SettingsPanel({
           <div className="flex items-center justify-between">
             <span className="text-subtext1">Texto para colar na sua IA</span>
             <button
-              onClick={() => copyText(`Você tem acesso ao HashiMemo, um app local de notas em Markdown.\n\n- Pasta: C:\\Users\\voxdata\\HashiMemo\\notes (.md com frontmatter YAML: title, group, color, pinned, hidden, remind_at, protected)\n- CLI no PATH: hashimemo\n- Comandos: hashimemo list | search "termo" | read "id" | new --group OpenCode --title "Título" "corpo" | edit "trecho" --append "linha" | context --notes 5 | path\n- notas com protected: true estão cifradas e ilegíveis\n- grave o que for para o usuário no grupo OpenCode e responda só com o título\n- nunca copie senhas para o chat`)}
+              onClick={() => copyText(`Cole na IA que você usa para ela ler e gravar nas suas notas.\n\nVocê tem acesso ao HashiMemo, um app local de notas em Markdown.\n- Notas na pasta configurada no app: um .md por nota com frontmatter YAML (title, group, color, pinned, hidden, remind_at, protected).\n- CLI opcional: hashimemo list | search "termo" | read "id" | new --group OpenCode --title "Título" "corpo" | edit "trecho" --append "linha" | context --notes 5 | path.\n- Notas com protected: true estão cifradas.\n- Grave no grupo OpenCode o que for para o usuário e responda só com o título.\n- Nunca copie senhas para o chat.`)}
               className={small}
             >
               copiar
@@ -1065,7 +1064,7 @@ export default function App() {
   const [menu, setMenu] = useState<{ note: Note; x: number; y: number } | null>(null);
   const [notice, setNotice] = useState("");
   const [collapsing, setCollapsing] = useState(false);
-  const [lockFlash, setLockFlash] = useState(false);
+  const [flash, setFlash] = useState<{ open: boolean; label: string } | null>(null);
   const [pin, setPin] = useState<PinStatus>({ set: false, unlocked: false, fails: 0 });
   const [pinDialog, setPinDialog] = useState<{
     mode: "create" | "unlock" | "change" | "remove";
@@ -1351,8 +1350,8 @@ export default function App() {
         });
       }
       if (target) {
-        setLockFlash(true);
-        window.setTimeout(() => setLockFlash(false), 1500);
+        setFlash({ open: false, label: "Nota bloqueada" });
+        window.setTimeout(() => setFlash(null), 1500);
       }
       reload();
     },
@@ -1361,9 +1360,16 @@ export default function App() {
 
   const lockNotes = useCallback(async () => {
     setPin(await invoke<PinStatus>("pin_lock"));
+    setFlash({ open: false, label: "Cofre bloqueado" });
+    window.setTimeout(() => setFlash(null), 1400);
     setDraft(null);
     reload();
   }, [reload]);
+
+  const closeSettings = useCallback(() => {
+    setPanel(false);
+    if (pin.unlocked) void lockNotes();
+  }, [lockNotes, pin.unlocked]);
 
   const submitPin = useCallback(
     async (value: string, next?: string) => {
@@ -1383,6 +1389,12 @@ export default function App() {
             : { pin: value },
         );
         setPin(status);
+        setFlash(
+          pinDialog.mode === "create"
+            ? { open: false, label: "Cofre bloqueado" }
+            : { open: true, label: "Cofre desbloqueado" },
+        );
+        window.setTimeout(() => setFlash(null), 1400);
         const action = pinDialog.action;
         const target = pinDialog.note;
         setPinDialog(null);
@@ -1477,7 +1489,7 @@ export default function App() {
       if (confirmAction) return setConfirmAction(null);
       if (menu) return setMenu(null);
       if (pending) return setPending(null);
-      if (panel) return setPanel(false);
+      if (panel) return closeSettings();
       if (draft) return closeEditor();
       if (win.level !== "Docked") void setLevel("Docked");
     };
@@ -2003,6 +2015,14 @@ export default function App() {
         </main>
       )}
 
+      {(win.level === "Focus" || !win.docked) && (
+        <div
+          onPointerDown={() => void getCurrentWindow().startResizeDragging("South").catch(() => {})}
+          title="Redimensionar"
+          className="absolute inset-x-0 bottom-0 z-40 h-2 cursor-ns-resize bg-transparent"
+        />
+      )}
+
       <footer className="flex items-center gap-2 border-t border-surface0/70 px-3 py-1.5 text-[0.65rem] text-overlay0">
         <span className="flex items-center gap-1.5">
           <span className={`h-1.5 w-1.5 rounded-full ${win.docked ? "bg-green" : "bg-yellow"}`} />
@@ -2124,7 +2144,7 @@ export default function App() {
           onUnhide={(note) => void toggleHidden(note)}
           onPin={(mode) => setPinDialog({ mode })}
           onLock={() => void lockNotes()}
-          onClose={() => setPanel(false)}
+          onClose={closeSettings}
         />
       )}
 
@@ -2168,16 +2188,16 @@ export default function App() {
         </div>
       )}
 
-      {lockFlash && (
+      {flash && (
         <div className="pointer-events-none absolute inset-0 z-[65] flex items-center justify-center bg-crust/45 backdrop-blur-[2px] pop-enter">
           <div className="flex flex-col items-center gap-2">
             <div className="relative">
-              <Kami size={92} pose="bloqueado" />
+              <Kami size={92} pose={flash.open ? "feliz" : "bloqueado"} />
               <span className="padlock-snap absolute right-0 -bottom-1">
-                <Padlock open={false} size={26} />
+                <Padlock open={flash.open} size={26} />
               </span>
             </div>
-            <span className="text-xs text-subtext0">Nota bloqueada</span>
+            <span className="text-xs text-subtext0">{flash.label}</span>
           </div>
         </div>
       )}
