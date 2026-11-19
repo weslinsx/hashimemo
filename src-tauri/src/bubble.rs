@@ -165,11 +165,14 @@ fn default_target(main: &WebviewWindow) -> (i32, i32) {
     let Some(monitor) = monitor else {
         return (0, 0);
     };
-    let area = monitor.work_area();
-    let left = area.position.x;
-    let top = area.position.y;
-    let width = area.size.width as i32;
-    let height = area.size.height as i32;
+    // Bounds completos do monitor: a work area ainda pode estar encolhida pela reserva
+    // do rail no instante do minimizar, o que colocava a bolinha 360px para dentro.
+    let origin = monitor.position();
+    let size = monitor.size();
+    let left = origin.x;
+    let top = origin.y;
+    let width = size.width as i32;
+    let height = size.height as i32;
     let x = left + width - SIZE as i32 - MARGIN;
     let y = (top + 185).clamp(top, top + height - SIZE as i32 - 1);
     (x, y)
@@ -187,13 +190,9 @@ fn area_for(window: &WebviewWindow, x: i32, y: i32) -> Option<(i32, i32, i32, i3
     });
     let fallback = window.current_monitor().ok().flatten();
     let chosen = containing.or(fallback.as_ref()).or_else(|| monitors.first())?;
-    let area = chosen.work_area();
-    Some((
-        area.position.x,
-        area.position.y,
-        area.size.width as i32,
-        area.size.height as i32,
-    ))
+    let origin = chosen.position();
+    let size = chosen.size();
+    Some((origin.x, origin.y, size.width as i32, size.height as i32))
 }
 
 fn snap_to_edge(window: &WebviewWindow, position: (i32, i32)) -> (i32, i32) {
@@ -228,6 +227,8 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("janela principal ausente")?;
     let ball = bubble(app).ok_or("bolinha ausente")?;
 
+    crate::window::remember_level(app);
+    // solta a reserva primeiro: a work area encolhida fazia a bolinha nascer 360px para dentro
     crate::window::release_area(&main);
 
     let docked = main
@@ -249,23 +250,12 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
         _ => default_target(&main),
     };
     let target = snap_to_edge(&ball, base);
-
-    let ms = crate::window::animation_ms(app).max(220);
-    // bolinha aparece já; o rail desbota em paralelo
-    let _ = ball.set_size(PhysicalSize::new(SIZE, SIZE));
-    let _ = ball.set_position(PhysicalPosition::new(target.0, target.1));
-    save_position(app, target.0, target.1);
-    mark_placed();
-    let _ = ball.show();
-    let _ = app.emit_to(LABEL, "bubble:show", ());
-
-    let fade = ms.min(200);
-    crate::window::fade_out(app, &main, fade);
-
+    // Esconde o rail e SÓ DEPOIS mostra a bolinha. Sem fade: o retângulo com
+    // opacidade parcial ficava visível como bloco preto.
     let _ = main.hide();
     crate::window::reset_opacity(app);
+
     let _ = ball.set_size(PhysicalSize::new(SIZE, SIZE));
-    crate::window::reset_opacity(app);
     let _ = ball.set_position(PhysicalPosition::new(target.0, target.1));
     save_position(app, target.0, target.1);
     mark_placed();
@@ -287,7 +277,8 @@ pub fn restore(app: &AppHandle) {
         crate::window::set_monitor(app, monitor.name().cloned());
     }
     let _ = ball.hide();
-    crate::window::show_docked(app, rect, true);
+    let level = crate::window::previous_level(app);
+    crate::window::show_level(app, level, rect);
 }
 
 pub fn reset(app: &AppHandle) {
@@ -395,11 +386,8 @@ pub fn bubble_menu_open(app: AppHandle) -> Result<(), String> {
     } else {
         position.x - extra_x
     };
-    let prefer_y = if position.y - extra_y < top {
-        position.y
-    } else {
-        position.y - extra_y
-    };
+    // mantém o menu na mesma altura da bolinha (centralizado verticalmente)
+    let prefer_y = position.y - (extra_y / 2);
     let max_x = left + width - MENU_WIDTH as i32;
     let max_y = top + height - MENU_HEIGHT as i32;
     let x = prefer_x.clamp(left, max_x);

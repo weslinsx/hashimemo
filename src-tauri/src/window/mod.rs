@@ -50,6 +50,8 @@ pub struct AppState {
 #[derive(Clone, Serialize, Deserialize)]
 struct Inner {
     level: Level,
+    #[serde(default)]
+    previous_level: Level,
     docked: bool,
     width: u32,
     floating: Option<(i32, i32)>,
@@ -61,6 +63,7 @@ impl Default for Inner {
     fn default() -> Self {
         Self {
             level: Level::Docked,
+            previous_level: Level::Docked,
             docked: true,
             width: RAIL_WIDTH,
             floating: None,
@@ -452,6 +455,39 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 
 pub fn release_area(window: &WebviewWindow) {
     appbar::release(window);
+}
+
+pub fn remember_level(app: &AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut inner) = state.inner.lock() {
+            inner.previous_level = inner.level;
+        }
+    }
+}
+
+pub fn previous_level(app: &AppHandle) -> Level {
+    app.try_state::<AppState>()
+        .and_then(|state| state.inner.lock().ok().map(|inner| inner.previous_level))
+        .unwrap_or(Level::Docked)
+}
+
+pub fn show_level(app: &AppHandle, level: Level, from: Option<(i32, i32, u32, u32)>) {
+    let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
+        return;
+    };
+    win::set_opacity(&window, 255);
+    if let Some((x, y, w, h)) = from {
+        let _ = window.set_size(PhysicalSize::new(w.max(200), h.max(120)));
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+    }
+    let _ = app.emit_to(WINDOW_LABEL, "app:expand", ());
+    let _ = window.show();
+    let state = app.state::<AppState>();
+    if let Ok(mut inner) = state.inner.lock() {
+        inner.docked = true;
+    }
+    apply(app, &window, &state, level, true);
+    let _ = window.set_focus();
 }
 
 pub fn show_docked(app: &AppHandle, from: Option<(i32, i32, u32, u32)>, animated: bool) {

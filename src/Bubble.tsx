@@ -66,7 +66,7 @@ export function Bubble() {
 
   return (
     <div
-      className={`flex h-full w-full ${menu ? "items-start justify-start p-1.5" : "items-center justify-center"}`}
+      className={`flex h-full w-full ${menu ? "items-center justify-start p-1" : "items-center justify-center"}`}
     >
       {menu ? (
         <div className="w-full rounded-lg border border-surface1/70 bg-mantle/95 p-1 text-xs shadow-xl">
