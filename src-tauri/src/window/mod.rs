@@ -257,6 +257,7 @@ fn apply(
 
     if !rail {
         appbar::release(window);
+        reset_work_area(window);
     }
 
     let work = work_area(window, monitor.as_deref());
@@ -452,6 +453,45 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 
     Ok(())
 }
+
+#[cfg(windows)]
+pub fn reset_work_area(window: &WebviewWindow) {
+    // Se sobrou reserva de AppBar (work area menor que o monitor), devolve a faixa.
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SPI_SETWORKAREA, SPIF_SENDCHANGE, SystemParametersInfoW,
+    };
+    appbar::clear(window);
+    let Ok(handle) = window.hwnd() else { return };
+    let hwnd = HWND(handle.0 as *mut _);
+    unsafe {
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return;
+        }
+        if info.rcWork.right >= info.rcMonitor.right {
+            return;
+        }
+        let mut work = info.rcWork;
+        work.right = info.rcMonitor.right;
+        let _ = SystemParametersInfoW(
+            SPI_SETWORKAREA,
+            0,
+            Some(&mut work as *mut RECT as *mut _),
+            SPIF_SENDCHANGE,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+pub fn reset_work_area(_window: &WebviewWindow) {}
 
 pub fn release_area(window: &WebviewWindow) {
     appbar::release(window);

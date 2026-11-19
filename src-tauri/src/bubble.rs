@@ -107,7 +107,8 @@ fn snap(app: &AppHandle, window: &WebviewWindow) {
         return;
     };
     let size = SIZE as i32;
-    let Some((left, top, width, height)) = work_area(window) else {
+    // usa bounds completos do monitor: a work area pode estar encolhida pela reserva do rail
+    let Some((left, top, width, height)) = area_for(window, position.x, position.y) else {
         return;
     };
     let distances = [
@@ -230,6 +231,7 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
     crate::window::remember_level(app);
     // solta a reserva primeiro: a work area encolhida fazia a bolinha nascer 360px para dentro
     crate::window::release_area(&main);
+    crate::window::reset_work_area(&main);
 
     let docked = main
         .current_monitor()
@@ -286,6 +288,15 @@ pub fn reset(app: &AppHandle) {
     let Some(main) = app.get_webview_window("main") else {
         return;
     };
+    // volta ao padrão do monitor: limpa a posição personalizada
+    if let Some(state) = app.try_state::<SettingsState>() {
+        let mut next = state.snapshot();
+        next.bubble_custom = false;
+        next.bubble_x = None;
+        next.bubble_y = None;
+        state.update(next.clone());
+        settings::save(app, &next);
+    }
     let target = default_target(&main);
     let from = ball
         .outer_position()

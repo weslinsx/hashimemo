@@ -98,6 +98,46 @@ mod imp {
         }
     }
 
+    pub fn clear(window: &WebviewWindow) {
+        // Truque para o shell descartar banda orfa: registra, posiciona com largura ZERO
+        // na borda direita e remove. O explorer recalcula a work area do monitor.
+        use windows::Win32::Foundation::RECT;
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+        };
+
+        let Some(hwnd) = hwnd(window) else { return };
+        unsafe {
+            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            let mut info = MONITORINFO {
+                cbSize: size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+                return;
+            }
+            let band = info.rcMonitor;
+
+            let mut new = data(hwnd);
+            SHAppBarMessage(ABM_NEW, &mut new);
+
+            let mut query = data(hwnd);
+            query.uEdge = ABE_RIGHT;
+            query.rc = RECT {
+                left: band.right,
+                top: band.top,
+                right: band.right,
+                bottom: band.bottom,
+            };
+            SHAppBarMessage(ABM_QUERYPOS, &mut query);
+            query.rc.left = query.rc.right;
+            SHAppBarMessage(ABM_SETPOS, &mut query);
+
+            let mut remove = data(hwnd);
+            SHAppBarMessage(ABM_REMOVE, &mut remove);
+        }
+    }
+
     pub fn release(window: &WebviewWindow) {
         let previous = BAND.lock().ok().and_then(|mut slot| slot.take());
         let Some(band) = previous else { return };
@@ -109,10 +149,13 @@ mod imp {
 }
 
 #[cfg(windows)]
-pub use imp::{release, reserve};
+pub use imp::{clear, release, reserve};
 
 #[cfg(not(windows))]
 pub fn reserve(_window: &tauri::WebviewWindow, _left: i32, _top: i32, _right: i32, _bottom: i32) {}
+
+#[cfg(not(windows))]
+pub fn clear(_window: &tauri::WebviewWindow) {}
 
 #[cfg(not(windows))]
 pub fn release(_window: &tauri::WebviewWindow) {}

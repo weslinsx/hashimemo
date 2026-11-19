@@ -58,10 +58,14 @@ export function Bubble() {
     void invoke("bubble_menu_close").catch(() => {});
   };
 
-  const openMenu = () => {
-    setMenu(true);
+  const openMenu = async () => {
     invoke<boolean>("bubble_locked").then(setLocked).catch(() => {});
-    void invoke("bubble_menu_open").catch(() => {});
+    try {
+      await invoke("bubble_menu_open");
+      setMenu(true);
+    } catch {
+      setMenu(false);
+    }
   };
 
   return (
