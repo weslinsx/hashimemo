@@ -1087,6 +1087,7 @@ export default function App() {
   const [collapsing, setCollapsing] = useState(false);
   const [levelPop, setLevelPop] = useState(false);
   const [expanding, setExpanding] = useState(false);
+  const [welcome, setWelcome] = useState(true);
   const popTimer = useRef<number>(0);
   const [flash, setFlash] = useState<{ open: boolean; label: string } | null>(null);
   const [pin, setPin] = useState<PinStatus>({ set: false, unlocked: false, fails: 0 });
@@ -1178,6 +1179,11 @@ export default function App() {
       window.removeEventListener("focus", reset);
     };
   }, [reload, settings.motion]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setWelcome(false), 1700);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     document.documentElement.style.setProperty("--scale", String(settings.font_scale / 100));
@@ -2242,6 +2248,12 @@ export default function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {welcome && (
+        <div className="pointer-events-none absolute inset-0 z-[80] flex items-center justify-center bg-base/80 backdrop-blur-[2px] welcome-fade">
+          <Kami size={120} pose="comemorando" className="welcome-pop" />
         </div>
       )}
 

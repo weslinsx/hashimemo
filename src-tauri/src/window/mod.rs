@@ -205,6 +205,14 @@ pub fn fade_out(_app: &AppHandle, window: &WebviewWindow, duration: u64) {
     win::set_opacity(window, 0);
 }
 
+pub fn set_monitor(app: &AppHandle, name: Option<String>) {
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut inner) = state.inner.lock() {
+            inner.monitor = name;
+        }
+    }
+}
+
 pub fn reset_opacity(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
         win::set_opacity(&window, 255);
@@ -407,7 +415,13 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         let shown = window.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(900));
+            win::set_opacity(&shown, 0);
             let _ = shown.show();
+            for step in 1..=8 {
+                win::set_opacity(&shown, (255 * step / 8) as u8);
+                std::thread::sleep(std::time::Duration::from_millis(32));
+            }
+            win::set_opacity(&shown, 255);
         });
     }
 

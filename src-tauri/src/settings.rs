@@ -40,6 +40,8 @@ pub struct Settings {
     pub bubble_y: Option<i32>,
     #[serde(default)]
     pub bubble_locked: bool,
+    #[serde(default)]
+    pub bubble_custom: bool,
 }
 
 fn default_autosave() -> bool {
@@ -75,6 +77,7 @@ impl Default for Settings {
             bubble_x: None,
             bubble_y: None,
             bubble_locked: false,
+            bubble_custom: false,
         }
     }
 }
@@ -182,6 +185,7 @@ pub fn update_settings(
     settings.bubble_x = previous.bubble_x;
     settings.bubble_y = previous.bubble_y;
     settings.bubble_locked = previous.bubble_locked;
+    settings.bubble_custom = previous.bubble_custom;
     if let Ok(mut inner) = state.inner.lock() {
         *inner = settings.clone();
     }

@@ -226,8 +226,11 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
         (Some(x), Some(y)) => Some((x, y)),
         _ => None,
     });
+    let custom = snapshot(app).map(|settings| settings.bubble_custom).unwrap_or(false);
     let base = match stored {
-        Some((x, y)) if docked.as_ref().is_some_and(|monitor| on_monitor(&main, monitor, x, y)) => {
+        Some((x, y))
+            if custom && docked.as_ref().is_some_and(|monitor| on_monitor(&main, monitor, x, y)) =>
+        {
             (x, y)
         }
         _ => default_target(&main),
@@ -266,6 +269,9 @@ pub fn restore(app: &AppHandle) {
             (position.x, position.y, size, size)
         })
         .ok();
+    if let Ok(Some(monitor)) = ball.current_monitor() {
+        crate::window::set_monitor(app, monitor.name().cloned());
+    }
     let _ = ball.hide();
     crate::window::show_docked(app, rect, true);
 }
@@ -294,6 +300,14 @@ pub fn minimize_to_bubble(app: AppHandle) -> Result<(), String> {
 pub fn bubble_snap(app: AppHandle) {
     if locked(&app) {
         return;
+    }
+    if let Some(state) = app.try_state::<SettingsState>() {
+        let mut next = state.snapshot();
+        if !next.bubble_custom {
+            next.bubble_custom = true;
+            state.update(next.clone());
+            settings::save(&app, &next);
+        }
     }
     GENERATION.fetch_add(1, Ordering::SeqCst);
     if let Some(window) = bubble(&app) {
@@ -344,6 +358,7 @@ pub fn bubble_toggle_lock(app: AppHandle) -> bool {
     };
     let mut next = state.snapshot();
     next.bubble_locked = !next.bubble_locked;
+    next.bubble_custom = true;
     state.update(next.clone());
     settings::save(&app, &next);
     if let Some(window) = bubble(&app) {
