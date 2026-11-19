@@ -641,6 +641,7 @@ export default function App() {
   const [draft, setDraft] = useState<Note | null>(null);
   const [conflict, setConflict] = useState<Note | null>(null);
   const [panel, setPanel] = useState(false);
+  const [collapsing, setCollapsing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState(() => localStorage.getItem("hashimemo.tab") ?? "Todos");
   const [menu, setMenu] = useState<{ note: Note; x: number; y: number } | null>(null);
@@ -912,7 +913,7 @@ export default function App() {
 
   return (
     <div
-      className="relative flex h-full flex-col bg-base text-text"
+      className={`relative flex h-full flex-col bg-base text-text transition-[transform,opacity] duration-500 ${collapsing ? "app-collapsing" : ""}`}
       onContextMenu={(event) => event.preventDefault()}
     >
       <header
@@ -959,6 +960,21 @@ export default function App() {
             }`}
           >
             <IconDock active={win.docked} />
+          </button>
+          <button
+            onClick={() => {
+              setCollapsing(true);
+              window.setTimeout(() => {
+                setCollapsing(false);
+                void invoke("minimize_to_bubble").catch(() => {});
+              }, 260);
+            }}
+            title="Minimizar em bolinha"
+            className="rounded-md p-1.5 text-overlay0 transition hover:bg-surface0 hover:text-text"
+          >
+            <svg viewBox="0 0 16 16" className="h-[1.05rem] w-[1.05rem]" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M4 6l4 4 4-4" />
+            </svg>
           </button>
           <button
             onClick={() => setPanel(true)}

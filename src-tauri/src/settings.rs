@@ -19,6 +19,18 @@ pub struct Settings {
     pub theme: String,
     #[serde(default)]
     pub notes_root: Option<String>,
+    #[serde(default)]
+    pub bubble_x: Option<i32>,
+    #[serde(default)]
+    pub bubble_y: Option<i32>,
+    #[serde(default)]
+    pub bubble_locked: bool,
+    #[serde(default = "default_minimize")]
+    pub minimize_mode: String,
+}
+
+fn default_minimize() -> String {
+    "bubble".into()
 }
 
 fn default_theme() -> String {
@@ -32,6 +44,10 @@ impl Default for Settings {
             autostart: true,
             theme: default_theme(),
             notes_root: None,
+            bubble_x: None,
+            bubble_y: None,
+            bubble_locked: false,
+            minimize_mode: default_minimize(),
         }
     }
 }
@@ -63,6 +79,12 @@ impl SettingsState {
         }
     }
 
+    pub fn update(&self, settings: Settings) {
+        if let Ok(mut inner) = self.inner.lock() {
+            *inner = settings;
+        }
+    }
+
     pub fn snapshot(&self) -> Settings {
         self.inner
             .lock()
@@ -86,7 +108,7 @@ pub fn load(app: &AppHandle) -> Settings {
         .normalized()
 }
 
-fn save(app: &AppHandle, settings: &Settings) {
+pub(crate) fn save(app: &AppHandle, settings: &Settings) {
     let Some(path) = path(app) else { return };
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
@@ -118,6 +140,10 @@ pub fn update_settings(
 ) -> Settings {
     let settings = settings.normalized();
     let previous = state.snapshot();
+    let mut settings = settings;
+    settings.bubble_x = previous.bubble_x;
+    settings.bubble_y = previous.bubble_y;
+    settings.bubble_locked = previous.bubble_locked;
     if let Ok(mut inner) = state.inner.lock() {
         *inner = settings.clone();
     }

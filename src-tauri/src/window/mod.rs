@@ -14,7 +14,8 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Manager, State, WebviewWindow, WindowEvent,
+    AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow,
+    WindowEvent,
 };
 
 use anim::Rect;
@@ -372,6 +373,24 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 
 pub fn release_area(window: &WebviewWindow) {
     appbar::release(window);
+}
+
+pub fn show_from_bubble(app: &AppHandle, from: Option<(i32, i32, u32, u32)>) {
+    let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
+        return;
+    };
+    win::set_opacity(&window, 255);
+    if let Some((x, y, w, h)) = from {
+        let _ = window.set_size(PhysicalSize::new(w.max(200), h.max(120)));
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+    }
+    let _ = window.show();
+    let state = app.state::<AppState>();
+    if let Ok(mut inner) = state.inner.lock() {
+        inner.docked = true;
+    }
+    apply(app, &window, &state, Level::Docked, true);
+    let _ = window.set_focus();
 }
 
 pub fn reapply(app: &AppHandle) {

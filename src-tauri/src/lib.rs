@@ -1,4 +1,5 @@
 mod capture;
+mod bubble;
 mod settings;
 pub mod notes;
 mod window;
@@ -16,9 +17,17 @@ fn toggle_rail(app: &AppHandle) {
     };
     let visible = window.is_visible().unwrap_or(false);
     if visible {
-        window::release_area(&window);
-        let _ = window.hide();
+        let mode = app.state::<settings::SettingsState>().snapshot().minimize_mode;
+        if mode == "bubble" {
+            let _ = bubble::minimize(app);
+        } else {
+            window::release_area(&window);
+            let _ = window.hide();
+        }
     } else {
+        if let Some(ball) = app.get_webview_window("bubble") {
+            let _ = ball.hide();
+        }
         let _ = window.show();
         window::reapply(app);
         let _ = window.set_focus();
@@ -108,6 +117,16 @@ pub fn run() {
             window::window_state,
             window::set_level,
             window::toggle_dock,
+            bubble::minimize_to_bubble,
+            bubble::bubble_restore,
+            bubble::bubble_reset,
+            bubble::bubble_position,
+            bubble::bubble_move,
+            bubble::bubble_drag_start,
+            bubble::bubble_snap,
+            bubble::bubble_locked,
+            bubble::bubble_menu_open,
+            bubble::bubble_menu_close,
             window::cycle_monitor,
             settings::get_settings,
             settings::update_settings,

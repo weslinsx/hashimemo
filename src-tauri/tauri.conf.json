@@ -26,6 +26,21 @@
         "skipTaskbar": true,
         "visible": false,
         "center": false
+      },
+      {
+        "label": "bubble",
+        "url": "index.html?bubble=1",
+        "title": "HashiMemo",
+        "width": 84,
+        "height": 84,
+        "decorations": false,
+        "shadow": false,
+        "transparent": true,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": false
       }
     ],
     "security": {
