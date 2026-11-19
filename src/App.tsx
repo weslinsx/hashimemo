@@ -1853,7 +1853,7 @@ export default function App() {
 
   return (
     <div
-      className={`relative flex h-full flex-col bg-base text-text transition-[transform,opacity] duration-300 ${
+      className={`app-root relative flex h-full flex-col bg-base text-text ${
         collapsing ? "app-collapsing" : ""
       } ${levelPop ? "level-pop" : ""}`}
       onContextMenu={(event) => event.preventDefault()}

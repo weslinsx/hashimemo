@@ -117,6 +117,11 @@ fn hotkey(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    std::panic::set_hook(Box::new(|info| {
+        let text = format!("{info}\n");
+        let _ = std::fs::write(std::env::temp_dir().join("hashimemo-panic.log"), text);
+    }));
+
     #[cfg(windows)]
     unsafe {
         let _ = windows::Win32::System::Console::FreeConsole();

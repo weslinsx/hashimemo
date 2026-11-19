@@ -186,6 +186,10 @@ fn level_rect(level: Level, work: Rect, right: i32, width: u32) -> Rect {
     }
 }
 
+pub fn animation_ms(app: &AppHandle) -> u64 {
+    motion_ms(app)
+}
+
 pub fn fade_out(_app: &AppHandle, window: &WebviewWindow, duration: u64) {
     if duration == 0 {
         win::set_opacity(window, 0);
@@ -214,10 +218,10 @@ fn motion_ms(app: &AppHandle) -> u64 {
         .map(|state| state.snapshot().motion)
         .map(|motion| match motion.as_str() {
             "off" => 0,
-            "fast" => 200,
-            "smooth" => 480,
-            "slow" => 650,
-            _ => 320,
+            "fast" => 240,
+            "smooth" => 600,
+            "slow" => 800,
+            _ => 420,
         })
         .unwrap_or(320)
 }
@@ -273,16 +277,7 @@ fn apply(
 
     let _ = window.set_always_on_top(rail);
     let _ = window.set_skip_taskbar(docked && level == Level::Docked);
-    let free = !rail;
-    let _ = window.set_resizable(free);
-    if free && level == Level::Focus {
-        let fixed = target.w.max(64);
-        let _ = window.set_min_size(Some(PhysicalSize::new(fixed, 300)));
-        let _ = window.set_max_size(Some(PhysicalSize::new(fixed, work.h.max(300))));
-    } else {
-        let _ = window.set_min_size(Some(PhysicalSize::new(64, 64)));
-        let _ = window.set_max_size(None::<PhysicalSize<u32>>);
-    }
+    let _ = window.set_resizable(!rail);
     win::remove_native_frame(window);
     win::set_round(window, true);
 
@@ -321,6 +316,7 @@ fn apply(
         monitors: monitors(window).len(),
     }
 }
+
 
 fn settle(window: WebviewWindow, target: Rect, generation: Arc<AtomicU64>) {
     let token = generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -397,6 +393,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     }
 
     let handle = app.clone();
+
     window.on_window_event(move |event| match event {
         WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();

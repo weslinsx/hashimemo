@@ -196,8 +196,9 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
         _ => default_target(&main),
     };
 
-    crate::window::fade_out(app, &main, 160);
-    std::thread::sleep(std::time::Duration::from_millis(180));
+    let ms = crate::window::animation_ms(app).max(220);
+    crate::window::fade_out(app, &main, ms);
+    std::thread::sleep(std::time::Duration::from_millis(ms + 80));
 
     let _ = main.hide();
     let _ = ball.set_size(PhysicalSize::new(SIZE, SIZE));
