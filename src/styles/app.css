@@ -269,6 +269,26 @@
     opacity: 0;
   }
 
+  .kami-act {
+    animation: kami-act 2.4s ease-in-out infinite;
+  }
+
+  .kami-idea {
+    animation: kami-idea 3s ease-in-out infinite;
+  }
+
+  .kami-confused {
+    animation: kami-confused 3.4s ease-in-out infinite;
+  }
+
+  .kami-pulse {
+    animation: kami-pulse 2.2s ease-in-out infinite;
+  }
+
+  .kami-sad {
+    animation: kami-sad 4s ease-in-out infinite;
+  }
+
   .kami-peek {
     animation: kami-peek 6s ease-in-out infinite;
   }
@@ -586,6 +606,56 @@
   100% {
     opacity: 1;
     transform: none;
+  }
+}
+
+@keyframes kami-act {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  50% {
+    transform: translateY(-1.5px) rotate(-1deg);
+  }
+}
+
+@keyframes kami-idea {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes kami-confused {
+  0%,
+  100% {
+    transform: rotate(-1.5deg);
+  }
+  50% {
+    transform: rotate(1.5deg);
+  }
+}
+
+@keyframes kami-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes kami-sad {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(1.5px);
   }
 }
 

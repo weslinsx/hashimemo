@@ -305,7 +305,7 @@ function NoteMenu({
           }}
           className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-subtext1 transition hover:bg-surface0 hover:text-text"
         >
-          {note.hidden ? "Mostrar nota" : "Bloquear nota"}
+          {note.hidden ? "Mostrar nota" : "Proteger nota"}
         </button>
 
         <div className="my-1 border-t border-surface0/70" />
@@ -795,7 +795,7 @@ function SettingsPanel({
             {!pin.set ? (
               <div className="mt-2 space-y-1.5">
                 <p className="text-xs leading-relaxed text-overlay0">
-                  Bloquear uma nota cifra o conteúdo com um PIN. Sem o PIN, não há como ler.
+                  Proteger uma nota cifra o conteúdo com o PIN. Sem ele, não há como ler.
                 </p>
                 <button onClick={() => onPin("create")} className={small}>
                   criar PIN
@@ -818,7 +818,7 @@ function SettingsPanel({
                   </div>
                 </div>
                 {hidden.length === 0 ? (
-                  <p className="text-overlay0">Nenhuma nota bloqueada. Botão direito na nota → Bloquear.</p>
+                  <p className="text-overlay0">Nenhuma nota protegida. Botão direito na nota → Proteger.</p>
                 ) : (
                   <ul className="space-y-1">
                     {hidden.map((note) => (
@@ -1265,7 +1265,11 @@ export default function App() {
         body: draft.body,
         color: draft.color,
         group: draft.group,
-      }).catch(() => null);
+      }).catch((error) => {
+        setNotice(`erro ao criar: ${String(error)}`);
+        setTimeout(() => setNotice(""), 7000);
+        return null;
+      });
       if (!created) {
         setNotice("não consegui salvar a nota");
         setTimeout(() => setNotice(""), 5000);
@@ -1283,7 +1287,11 @@ export default function App() {
       reload();
       return;
     }
-    const savedNote = await invoke<Note>("update_note", { note: draft }).catch(() => null);
+    const savedNote = await invoke<Note>("update_note", { note: draft }).catch((error) => {
+      setNotice(`erro ao salvar: ${String(error)}`);
+      setTimeout(() => setNotice(""), 7000);
+      return null;
+    });
     if (!savedNote) {
       setNotice("não consegui salvar a nota");
       setTimeout(() => setNotice(""), 5000);
@@ -1350,7 +1358,7 @@ export default function App() {
         });
       }
       if (target) {
-        setFlash({ open: false, label: "Nota bloqueada" });
+        setFlash({ open: false, label: "Nota protegida" });
         window.setTimeout(() => setFlash(null), 1500);
       }
       reload();
@@ -1811,7 +1819,7 @@ export default function App() {
       )}
       {ordered.length === 0 && (
         <div className="mt-4 flex flex-col items-center rounded-card border border-dashed border-surface1 px-4 py-6 text-center">
-          <Kami size={72} pose="idle" className="mb-2" />
+          <Kami size={72} pose="ideia" className="mb-2" />
           <p className="text-sm text-subtext0">
             {tab === "Todos" ? "Nenhuma nota ainda" : `Nenhuma nota em "${tab}"`}
           </p>
@@ -1869,6 +1877,19 @@ export default function App() {
               <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
             </svg>
           </button>
+          {win.level === "Focus" && (
+            <button
+              onClick={() => {
+                void invoke<WindowState>("toggle_focus_height").then(setWin).catch(() => {});
+              }}
+              title="Alternar altura (70% ↔ tela cheia)"
+              className="rounded-md p-1.5 text-overlay0 transition hover:bg-surface0 hover:text-text"
+            >
+              <svg viewBox="0 0 16 16" className="h-[1.05rem] w-[1.05rem]" fill="none" stroke="currentColor" strokeWidth="1.4">
+                <path d="M8 2v12M4.5 5.5L8 2l3.5 3.5M4.5 10.5L8 14l3.5-3.5" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={() => void toggleDock()}
             disabled={busy}
@@ -2015,14 +2036,6 @@ export default function App() {
         </main>
       )}
 
-      {(win.level === "Focus" || !win.docked) && (
-        <div
-          onPointerDown={() => void getCurrentWindow().startResizeDragging("South").catch(() => {})}
-          title="Redimensionar"
-          className="absolute inset-x-0 bottom-0 z-40 h-2 cursor-ns-resize bg-transparent"
-        />
-      )}
-
       <footer className="flex items-center gap-2 border-t border-surface0/70 px-3 py-1.5 text-[0.65rem] text-overlay0">
         <span className="flex items-center gap-1.5">
           <span className={`h-1.5 w-1.5 rounded-full ${win.docked ? "bg-green" : "bg-yellow"}`} />
@@ -2097,8 +2110,9 @@ export default function App() {
         <>
           {editorNode(false)}
           {notice && (
-            <div className="absolute inset-x-0 bottom-0 z-30 border-t border-red/40 bg-red/10 px-3 py-2 text-xs text-red">
-              {notice}
+            <div className="absolute inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t border-red/40 bg-red/10 px-3 py-2 text-xs text-red">
+              <Kami size={16} pose="confuso" />
+              <span>{notice}</span>
             </div>
           )}
           {conflict && (
@@ -2217,7 +2231,10 @@ export default function App() {
       {pending && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-crust/70 px-4 backdrop-blur-sm">
           <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl pop-enter">
-            <p className="text-sm font-semibold">Excluir nota?</p>
+            <div className="flex items-center gap-2">
+              <Kami size={34} pose="descartando" />
+              <p className="text-sm font-semibold">Excluir nota?</p>
+            </div>
             <p className="mt-1 break-words text-xs leading-relaxed text-subtext0">
               {pending.title || "Sem título"} — o arquivo é removido da pasta de notas.
             </p>

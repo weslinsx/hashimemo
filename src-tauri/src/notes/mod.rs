@@ -280,6 +280,7 @@ pub fn set_protected(
 ) -> Result<(), String> {
     let mut note = with_store(&state, |store| store.fetch(&id))?
         .ok_or("nota não encontrada")?;
+    let plain = note.title.clone();
     if protected {
         let key = vault.key().ok_or("pin")?;
         note.protected = true;
@@ -288,7 +289,13 @@ pub fn set_protected(
     } else {
         note.hidden = false;
     }
-    with_store(&state, |store| store.save(note))?.map_err(|error| error.to_string())?;
+    let saved = with_store(&state, |store| store.save(note))?.map_err(|error| error.to_string())?;
+    if protected && !plain.is_empty() {
+        let content = std::fs::read_to_string(&saved.path).map_err(|error| error.to_string())?;
+        if content.contains(&plain) {
+            return Err("a nota não foi cifrada".into());
+        }
+    }
     Ok(())
 }
 

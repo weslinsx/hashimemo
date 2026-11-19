@@ -161,6 +161,7 @@ pub fn run() {
             window::set_level,
             window::toggle_dock,
             window::cycle_monitor,
+            window::toggle_focus_height,
             settings::get_settings,
             settings::update_settings,
             notes::notes_dir,

@@ -186,40 +186,7 @@ fn level_rect(level: Level, work: Rect, right: i32, width: u32) -> Rect {
     }
 }
 
-pub fn shrink_sync(app: &AppHandle, target: (i32, i32, u32, u32)) {
-    let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
-        return;
-    };
-    let _ = window.set_resizable(true);
-    let (fx, fy, fw, fh) = match win::rect(&window) {
-        Some((x, y, w, h)) => (x, y, w.max(1) as u32, h.max(1) as u32),
-        None => target,
-    };
-    let duration = motion_ms(app).max(120);
-    let steps = (duration / 16).max(4);
-    for step in 1..=steps {
-        let t = step as f32 / steps as f32;
-        let inv = 1.0 - t;
-        let e = 1.0 - inv * inv * inv;
-        let x = fx as f32 + (target.0 - fx) as f32 * e;
-        let y = fy as f32 + (target.1 - fy) as f32 * e;
-        let w = fw as f32 + (target.2 as f32 - fw as f32) * e;
-        let h = fh as f32 + (target.3 as f32 - fh as f32) * e;
-        win::place(
-            &window,
-            x.round() as i32,
-            y.round() as i32,
-            (w.round() as u32).max(1),
-            (h.round() as u32).max(1),
-        );
-        std::thread::sleep(std::time::Duration::from_millis(16));
-    }
-    win::place(&window, target.0, target.1, target.2, target.3);
-    let _ = window.set_resizable(false);
-}
-
-pub fn fade_out(app: &AppHandle, window: &WebviewWindow) {
-    let duration = motion_ms(app);
+pub fn fade_out(_app: &AppHandle, window: &WebviewWindow, duration: u64) {
     if duration == 0 {
         win::set_opacity(window, 0);
         return;
@@ -489,6 +456,28 @@ pub fn reapply(app: &AppHandle) {
         .map(|inner| inner.level)
         .unwrap_or(Level::Docked);
     apply(app, &window, &state, level, false);
+}
+
+#[tauri::command]
+pub fn toggle_focus_height(
+    _app: AppHandle,
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> WindowState {
+    let Some((x, _, w, h)) = win::rect(&window) else {
+        return snapshot(&window, &state);
+    };
+    let monitor = state.inner.lock().ok().and_then(|inner| inner.monitor.clone());
+    let work = work_area(&window, monitor.as_deref());
+    let full = h > 0 && (h as f32) > work.h as f32 * 0.85;
+    let target_h = if full {
+        (work.h as f32 * 0.7) as u32
+    } else {
+        work.h
+    };
+    let y = work.y + ((work.h as i32 - target_h as i32) / 2).max(0);
+    win::place(&window, x, y, w.max(1) as u32, target_h.max(120));
+    snapshot(&window, &state)
 }
 
 pub fn reset_windows(app: &AppHandle) {
