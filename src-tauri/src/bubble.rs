@@ -175,33 +175,46 @@ fn default_target(main: &WebviewWindow) -> (i32, i32) {
     (x, y)
 }
 
+fn area_for(window: &WebviewWindow, x: i32, y: i32) -> Option<(i32, i32, i32, i32)> {
+    let monitors = window.available_monitors().ok()?;
+    let containing = monitors.iter().find(|monitor| {
+        let position = monitor.position();
+        let size = monitor.size();
+        x >= position.x
+            && y >= position.y
+            && x < position.x + size.width as i32
+            && y < position.y + size.height as i32
+    });
+    let fallback = window.current_monitor().ok().flatten();
+    let chosen = containing.or(fallback.as_ref()).or_else(|| monitors.first())?;
+    let area = chosen.work_area();
+    Some((
+        area.position.x,
+        area.position.y,
+        area.size.width as i32,
+        area.size.height as i32,
+    ))
+}
+
 fn snap_to_edge(window: &WebviewWindow, position: (i32, i32)) -> (i32, i32) {
-    let Some((left, top, width, height)) = work_area(window) else {
+    // Usa o monitor que CONTÉM o ponto desejado (o monitor do app), nunca o monitor
+    // onde a bolinha estava antes — era isso que jogava a bolinha na tela errada.
+    let Some((left, top, width, height)) = area_for(window, position.0, position.1) else {
         return position;
     };
     let size = SIZE as i32;
+    let clamp_y = |value: i32| value.min(top + height - size - MARGIN).max(top + MARGIN);
+    let clamp_x = |value: i32| value.min(left + width - size - MARGIN).max(left + MARGIN);
     let distances = [
-        (
-            (position.0 - left).abs(),
-            (left + MARGIN, position.1.min(top + height - size - MARGIN).max(top + MARGIN)),
-        ),
+        ((position.0 - left).abs(), (left + MARGIN, clamp_y(position.1))),
         (
             (left + width - (position.0 + size)).abs(),
-            (
-                left + width - size - MARGIN,
-                position.1.min(top + height - size - MARGIN).max(top + MARGIN),
-            ),
+            (left + width - size - MARGIN, clamp_y(position.1)),
         ),
-        (
-            (position.1 - top).abs(),
-            (position.0.min(left + width - size - MARGIN).max(left + MARGIN), top + MARGIN),
-        ),
+        ((position.1 - top).abs(), (clamp_x(position.0), top + MARGIN)),
         (
             (top + height - (position.1 + size)).abs(),
-            (
-                position.0.min(left + width - size - MARGIN).max(left + MARGIN),
-                top + height - size - MARGIN,
-            ),
+            (clamp_x(position.0), top + height - size - MARGIN),
         ),
     ];
     distances
