@@ -55,18 +55,14 @@ fn save_position(app: &AppHandle, x: i32, y: i32) {
     settings::save(app, &next);
 }
 
-fn on_screen(window: &WebviewWindow, x: i32, y: i32) -> bool {
-    let Ok(monitors) = window.available_monitors() else {
-        return false;
-    };
-    monitors.iter().any(|monitor| {
-        let position = monitor.position();
-        let size = monitor.size();
-        x >= position.x
-            && y >= position.y
-            && x + SIZE as i32 <= position.x + size.width as i32
-            && y + SIZE as i32 <= position.y + size.height as i32
-    })
+fn on_monitor(main: &WebviewWindow, monitor: &tauri::Monitor, x: i32, y: i32) -> bool {
+    let _ = main;
+    let position = monitor.position();
+    let size = monitor.size();
+    x >= position.x
+        && y >= position.y
+        && x + SIZE as i32 <= position.x + size.width as i32
+        && y + SIZE as i32 <= position.y + size.height as i32
 }
 
 fn work_area(window: &WebviewWindow) -> Option<(i32, i32, i32, i32)> {
@@ -98,30 +94,6 @@ fn slide_position(window: WebviewWindow, from: (i32, i32), to: (i32, i32)) {
             let _ = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
             std::thread::sleep(Duration::from_millis(16));
         }
-        let _ = window.set_position(PhysicalPosition::new(to.0, to.1));
-    });
-}
-
-fn slide_rect(
-    window: WebviewWindow,
-    from: (i32, i32, u32, u32),
-    to: (i32, i32, u32, u32),
-) {
-    std::thread::spawn(move || {
-        for step in 1..=16 {
-            let t = eased(step as f32 / 16.0);
-            let x = from.0 as f32 + (to.0 - from.0) as f32 * t;
-            let y = from.1 as f32 + (to.1 - from.1) as f32 * t;
-            let w = from.2 as f32 + (to.2 as f32 - from.2 as f32) * t;
-            let h = from.3 as f32 + (to.3 as f32 - from.3 as f32) * t;
-            let _ = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
-            let _ = window.set_size(PhysicalSize::new(
-                (w.round() as u32).max(1),
-                (h.round() as u32).max(1),
-            ));
-            std::thread::sleep(Duration::from_millis(16));
-        }
-        let _ = window.set_size(PhysicalSize::new(to.2, to.3));
         let _ = window.set_position(PhysicalPosition::new(to.0, to.1));
     });
 }
@@ -185,10 +157,10 @@ pub fn init(app: &AppHandle) {
 
 fn default_target(main: &WebviewWindow) -> (i32, i32) {
     let monitor = main
-        .primary_monitor()
+        .current_monitor()
         .ok()
         .flatten()
-        .or_else(|| main.current_monitor().ok().flatten());
+        .or_else(|| main.primary_monitor().ok().flatten());
     let Some(monitor) = monitor else {
         return (0, 0);
     };
@@ -196,34 +168,37 @@ fn default_target(main: &WebviewWindow) -> (i32, i32) {
     let left = area.position.x;
     let top = area.position.y;
     let width = area.size.width as i32;
-    (left + width - SIZE as i32 - MARGIN, top + MARGIN)
+    let height = area.size.height as i32;
+    let x = left + width - SIZE as i32 - MARGIN;
+    let y = 185.clamp(top, top + height - SIZE as i32 - 1);
+    (x, y)
 }
 
 pub fn minimize(app: &AppHandle) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("janela principal ausente")?;
     let ball = bubble(app).ok_or("bolinha ausente")?;
 
+    crate::window::release_area(&main);
+
+    let docked = main
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| main.primary_monitor().ok().flatten());
     let stored = snapshot(app).and_then(|settings| match (settings.bubble_x, settings.bubble_y) {
         (Some(x), Some(y)) => Some((x, y)),
         _ => None,
     });
     let target = match stored {
-        Some((x, y)) if on_screen(&ball, x, y) => (x, y),
+        Some((x, y)) if docked.as_ref().is_some_and(|monitor| on_monitor(&main, monitor, x, y)) => {
+            (x, y)
+        }
         _ => default_target(&main),
     };
 
-    let start = main.outer_position().ok();
-    let size = main.outer_size().ok();
-    crate::window::release_area(&main);
-
-    if let (Some(position), Some(size)) = (start, size) {
-        slide_rect(
-            main.clone(),
-            (position.x, position.y, size.width, size.height),
-            (target.0, target.1, SIZE, SIZE),
-        );
-        std::thread::sleep(Duration::from_millis(280));
-    }
+    crate::window::shrink_to(app, target.0, target.1, SIZE, SIZE);
+    let duration = crate::window::motion_duration(app);
+    std::thread::sleep(Duration::from_millis(duration + 60));
 
     let _ = main.hide();
     let _ = ball.set_size(PhysicalSize::new(SIZE, SIZE));
@@ -237,8 +212,15 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
 
 pub fn restore(app: &AppHandle) {
     let Some(ball) = bubble(app) else { return };
+    let rect = ball
+        .outer_position()
+        .map(|position| {
+            let size = ball.outer_size().map(|s| s.width).unwrap_or(SIZE);
+            (position.x, position.y, size, size)
+        })
+        .ok();
     let _ = ball.hide();
-    crate::window::show_docked(app, None, false);
+    crate::window::show_docked(app, rect, true);
 }
 
 pub fn reset(app: &AppHandle) {

@@ -186,17 +186,36 @@ fn level_rect(level: Level, work: Rect, right: i32, width: u32) -> Rect {
     }
 }
 
+pub fn motion_duration(app: &AppHandle) -> u64 {
+    motion_ms(app)
+}
+
+pub fn shrink_to(app: &AppHandle, x: i32, y: i32, w: u32, h: u32) {
+    let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
+        return;
+    };
+    let state = app.state::<AppState>();
+    anim::animate(
+        window.clone(),
+        anim::current(&window),
+        Rect { x, y, w, h },
+        state.generation.clone(),
+        None,
+        motion_ms(app),
+    );
+}
+
 fn motion_ms(app: &AppHandle) -> u64 {
     app.try_state::<crate::settings::SettingsState>()
         .map(|state| state.snapshot().motion)
         .map(|motion| match motion.as_str() {
             "off" => 0,
-            "fast" => 140,
-            "smooth" => 380,
-            "slow" => 520,
-            _ => 220,
+            "fast" => 200,
+            "smooth" => 480,
+            "slow" => 650,
+            _ => 320,
         })
-        .unwrap_or(220)
+        .unwrap_or(320)
 }
 
 fn apply(

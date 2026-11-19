@@ -569,11 +569,22 @@ function Editor({
   );
 }
 
-const OPENCODE_HELP = `Skill \`hashimemo\` em \`~/.config/opencode/skills/hashimemo/SKILL.md\` e regra no \`AGENTS.md\` global: toda sessão sabe que as notas ficam neste rail e como ler/gravar.
+const OPENCODE_HELP = `Cole este texto na IA que você usa (ChatGPT, Claude, Gemini, Copilot ou um agente local) para ela aprender a ler e gravar aqui.
 
-Comandos de sessão: \`/nota <texto>\` grava no grupo OpenCode; \`/notas [termo]\` lista ou busca.
+---
 
-CLI no PATH: \`hashimemo list|search|read|edit|context|new\`. Grupo OpenCode = aba no rail.`;
+Você tem acesso ao HashiMemo, um app local de notas em Markdown na borda da tela.
+
+- Pasta das notas: \`C:\\Users\\voxdata\\HashiMemo\\notes\` (um .md por nota, frontmatter YAML com title, group, color, pinned, hidden, remind_at, protected).
+- CLI no PATH: \`hashimemo\`.
+- Comandos: \`hashimemo list\`, \`hashimemo search "termo"\`, \`hashimemo read "id ou trecho"\`, \`hashimemo new --group OpenCode --title "Título" "corpo"\`, \`hashimemo edit "trecho" --append "linha"\`, \`hashimemo context --notes 5\`, \`hashimemo path\`.
+- Notas com \`protected: true\` estão cifradas e não podem ser lidas por você.
+- Ao criar algo para o usuário ler (decisão, pendência, resumo), grave no grupo \`OpenCode\` e responda só com o título.
+- Nunca copie senhas ou segredos da nota para o chat.`;
+
+function copyText(value: string) {
+  void navigator.clipboard.writeText(value).catch(() => {});
+}
 
 function SettingsPanel({
   settings,
@@ -822,8 +833,19 @@ function SettingsPanel({
         </section>
 
         <section className="border-t border-surface0/60 pt-4">
-          <p className="mb-2 text-subtext1">Integração OpenCode</p>
-          <Md text={OPENCODE_HELP} className="rounded-md border border-surface0/60 bg-base/60 px-2.5 py-2 text-xs leading-relaxed text-subtext0" />
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-subtext1">Integração IA</p>
+            <button
+              onClick={() => copyText(`Você tem acesso ao HashiMemo, um app local de notas em Markdown.\n\n- Pasta: C:\\Users\\voxdata\\HashiMemo\\notes (.md com frontmatter YAML: title, group, color, pinned, hidden, remind_at, protected)\n- CLI no PATH: hashimemo\n- Comandos: hashimemo list | search "termo" | read "id" | new --group OpenCode --title "Título" "corpo" | edit "trecho" --append "linha" | context --notes 5 | path\n- notas com protected: true estão cifradas e ilegíveis\n- grave o que for para o usuário no grupo OpenCode e responda só com o título\n- nunca copie senhas para o chat`)}
+              className="rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1"
+            >
+              copiar
+            </button>
+          </div>
+          <Md
+            text={OPENCODE_HELP}
+            className="rounded-md border border-surface0/60 bg-base/60 px-2.5 py-2 text-xs leading-relaxed text-subtext0 select-text"
+          />
         </section>
 
         <section className="space-y-1.5 border-t border-surface0/60 pt-4 text-xs text-overlay0">
