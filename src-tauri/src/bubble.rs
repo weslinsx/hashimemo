@@ -196,10 +196,6 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
         _ => default_target(&main),
     };
 
-    crate::window::shrink_to(app, target.0, target.1, SIZE, SIZE);
-    let duration = crate::window::motion_duration(app);
-    std::thread::sleep(Duration::from_millis(duration + 60));
-
     let _ = main.hide();
     let _ = ball.set_size(PhysicalSize::new(SIZE, SIZE));
     let _ = ball.set_position(PhysicalPosition::new(target.0, target.1));

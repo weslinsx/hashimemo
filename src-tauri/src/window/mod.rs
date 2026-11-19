@@ -186,26 +186,6 @@ fn level_rect(level: Level, work: Rect, right: i32, width: u32) -> Rect {
     }
 }
 
-pub fn motion_duration(app: &AppHandle) -> u64 {
-    motion_ms(app)
-}
-
-pub fn shrink_to(app: &AppHandle, x: i32, y: i32, w: u32, h: u32) {
-    let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
-        return;
-    };
-    let state = app.state::<AppState>();
-    anim::animate(
-        window.clone(),
-        anim::current(&window),
-        Rect { x, y, w, h },
-        state.generation.clone(),
-        None,
-        motion_ms(app),
-        false,
-    );
-}
-
 fn motion_ms(app: &AppHandle) -> u64 {
     app.try_state::<crate::settings::SettingsState>()
         .map(|state| state.snapshot().motion)
@@ -264,7 +244,7 @@ fn apply(
     ));
 
     let _ = window.set_always_on_top(rail);
-    let _ = window.set_skip_taskbar(true);
+    let _ = window.set_skip_taskbar(!docked);
     let _ = window.set_resizable(!docked);
     win::remove_native_frame(window);
     win::set_round(window, true);
@@ -503,9 +483,21 @@ pub fn cycle_monitor(
         .unwrap_or(0);
     let next = &list[(index + 1) % list.len()];
     let target = next.name().cloned();
+    let monitor_area = monitor_rects(&window, target.as_deref()).map(|(_, work)| work);
     if let Ok(mut inner) = state.inner.lock() {
         inner.monitor = target.clone();
-        inner.floating = None;
+        if inner.docked {
+            inner.floating = None;
+        } else if let Some(work) = monitor_area {
+            let height = win::rect(&window)
+                .map(|(_, _, _, h)| h.max(1) as u32)
+                .unwrap_or(work.h)
+                .min(work.h);
+            inner.floating = Some((
+                work.x + ((work.w as i32 - inner.width as i32) / 2).max(0),
+                work.y + ((work.h as i32 - height as i32) / 2).max(0),
+            ));
+        }
     }
     apply(&app, &window, &state, level, true)
 }
@@ -544,6 +536,10 @@ pub fn toggle_dock(
             }
         }
     }
-    apply(&app, &window, &state, Level::Docked, true)
+    apply(&app, &window, &state, Level::Docked, true);
+    if !state.inner.lock().map(|inner| inner.docked).unwrap_or(true) {
+        let _ = window.set_focus();
+    }
+    snapshot(&window, &state)
 }
 

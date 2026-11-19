@@ -1125,11 +1125,13 @@ export default function App() {
     const unlisten = listen("notes:changed", () => reload());
     const collapse = listen("app:collapse", () => {
       setCollapsing(true);
-      window.setTimeout(() => setCollapsing(false), 600);
     });
+    const reset = () => setCollapsing(false);
+    window.addEventListener("focus", reset);
     return () => {
       void unlisten.then((off) => off());
       void collapse.then((off) => off());
+      window.removeEventListener("focus", reset);
     };
   }, [reload]);
 
@@ -1858,10 +1860,7 @@ export default function App() {
           <button
             onClick={() => {
               setCollapsing(true);
-              window.setTimeout(() => {
-                setCollapsing(false);
-                void invoke("minimize_to_bubble").catch(() => {});
-              }, 250);
+              window.setTimeout(() => void invoke("minimize_to_bubble").catch(() => {}), 250);
             }}
             title="Minimizar em bolinha"
             className="rounded-md p-1.5 text-overlay0 transition hover:bg-surface0 hover:text-text"
