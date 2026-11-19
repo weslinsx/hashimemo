@@ -101,3 +101,25 @@ pub fn set_round(window: &WebviewWindow, round: bool) {
 
 #[cfg(not(windows))]
 pub fn set_round(_window: &WebviewWindow, _round: bool) {}
+
+#[cfg(windows)]
+pub fn set_opacity(window: &WebviewWindow, alpha: u8) {
+    use windows::Win32::Foundation::{COLORREF, HWND};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GetWindowLongPtrW, LWA_ALPHA, SetLayeredWindowAttributes, SetWindowLongPtrW,
+        WS_EX_LAYERED,
+    };
+
+    let Ok(handle) = window.hwnd() else { return };
+    let hwnd = HWND(handle.0 as *mut _);
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if style & WS_EX_LAYERED.0 as isize == 0 {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED.0 as isize);
+        }
+        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn set_opacity(_window: &WebviewWindow, _alpha: u8) {}

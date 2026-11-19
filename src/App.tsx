@@ -305,7 +305,7 @@ function NoteMenu({
           }}
           className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-subtext1 transition hover:bg-surface0 hover:text-text"
         >
-          {note.hidden ? "Mostrar nota" : "Ocultar nota"}
+          {note.hidden ? "Mostrar nota" : "Bloquear nota"}
         </button>
 
         <div className="my-1 border-t border-surface0/70" />
@@ -586,6 +586,40 @@ function copyText(value: string) {
   void navigator.clipboard.writeText(value).catch(() => {});
 }
 
+function Padlock({ open, size = 14 }: { open: boolean; size?: number }) {
+  return (
+    <svg viewBox="0 0 16 16" width={size} height={size} aria-hidden="true" className="shrink-0">
+      <rect
+        x="3"
+        y="7"
+        width="10"
+        height="7"
+        rx="2"
+        fill="var(--color-mauve)"
+        stroke="var(--color-crust)"
+        strokeWidth="1"
+      />
+      <path
+        d={open ? "M5.5 7V5a2.5 2.5 0 0 1 4.6-1.3" : "M5.5 7V5a2.5 2.5 0 0 1 5 0v2"}
+        fill="none"
+        stroke="var(--color-crust)"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+      <circle cx="8" cy="10.5" r="1" fill="var(--color-crust)" />
+    </svg>
+  );
+}
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3 border-t border-surface0/60 pt-4 first:border-0 first:pt-0">
+      <p className="text-[0.62rem] font-semibold tracking-[0.12em] text-overlay0 uppercase">{title}</p>
+      {children}
+    </section>
+  );
+}
+
 function SettingsPanel({
   settings,
   notesPath,
@@ -608,239 +642,216 @@ function SettingsPanel({
   onClose: () => void;
 }) {
   const [root, setRoot] = useState(settings.notes_root ?? "");
+  const small =
+    "rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1";
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-mantle level-enter">
       <div className="flex items-center gap-2 border-b border-surface0/70 px-3 py-2.5">
         <span className="text-sm font-semibold">Configurações</span>
-        <button
-          onClick={onClose}
-          className="ml-auto rounded-md px-2 py-1 text-xs text-overlay0 transition hover:bg-surface0 hover:text-text"
-        >
+        <button onClick={onClose} className="ml-auto rounded-md px-2 py-1 text-xs text-overlay0 transition hover:bg-surface0 hover:text-text">
           fechar
         </button>
       </div>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-3 py-4 text-sm">
-        <section>
-          <label htmlFor="theme" className="mb-2 block text-subtext1">
-            Tema
-          </label>
-          <select
-            id="theme"
-            value={settings.theme}
-            onChange={(event) => onChange({ ...settings, theme: event.target.value })}
-            className="w-full rounded-md border border-surface0/60 bg-base px-2 py-1.5 text-sm outline-none focus:border-mauve/70"
-          >
-            {THEMES.map((theme) => (
-              <option key={theme.id} value={theme.id}>
-                {theme.label}
-              </option>
-            ))}
-          </select>
-        </section>
-
-        <section>
-          <label htmlFor="minimize" className="mb-2 block text-subtext1">
-            Ao minimizar
-          </label>
-          <select
-            id="minimize"
-            value={settings.minimize_mode}
-            onChange={(event) => onChange({ ...settings, minimize_mode: event.target.value })}
-            className="w-full rounded-md border border-surface0/60 bg-base px-2 py-1.5 text-sm outline-none focus:border-mauve/70"
-          >
-            <option value="bubble">Bolinha (Kami)</option>
-            <option value="hide">Só ocultar</option>
-          </select>
-        </section>
-
-        <section>
-          <label htmlFor="motion" className="mb-2 block text-subtext1">
-            Animação
-          </label>
-          <select
-            id="motion"
-            value={settings.motion}
-            onChange={(event) => onChange({ ...settings, motion: event.target.value })}
-            className="w-full rounded-md border border-surface0/60 bg-base px-2 py-1.5 text-sm outline-none focus:border-mauve/70"
-          >
-            {MOTIONS.map((motion) => (
-              <option key={motion.id} value={motion.id}>
-                {motion.label}
-              </option>
-            ))}
-          </select>
-        </section>
-
-        <section>
-          <div className="mb-2 flex items-baseline justify-between">
-            <label htmlFor="scale" className="text-subtext1">
-              Tamanho da fonte
+        <Group title="Aparência">
+          <div>
+            <label htmlFor="theme" className="mb-1.5 block text-subtext1">
+              Tema
             </label>
-            <span className="tabular-nums text-xs text-overlay0">{settings.font_scale}%</span>
+            <select
+              id="theme"
+              value={settings.theme}
+              onChange={(event) => onChange({ ...settings, theme: event.target.value })}
+              className="w-full rounded-md border border-surface0/60 bg-base px-2 py-1.5 text-sm outline-none focus:border-mauve/70"
+            >
+              {THEMES.map((theme) => (
+                <option key={theme.id} value={theme.id}>
+                  {theme.label}
+                </option>
+              ))}
+            </select>
           </div>
-          <input
-            id="scale"
-            type="range"
-            min={80}
-            max={160}
-            step={5}
-            value={settings.font_scale}
-            onChange={(event) => onChange({ ...settings, font_scale: Number(event.target.value) })}
-            className="w-full accent-mauve"
-          />
-        </section>
 
-        <section className="flex items-start gap-3">
-          <input
-            id="autostart"
-            type="checkbox"
-            checked={settings.autostart}
-            onChange={(event) => onChange({ ...settings, autostart: event.target.checked })}
-            className="mt-1 h-4 w-4 accent-mauve"
-          />
-          <label htmlFor="autostart" className="text-subtext1">
-            Abrir com o sistema
-            <span className="mt-0.5 block text-xs text-overlay0">
-              Inicia oculto na bandeja, fora da barra de tarefas.
-            </span>
-          </label>
-        </section>
+          <div>
+            <label htmlFor="motion" className="mb-1.5 block text-subtext1">
+              Animação
+            </label>
+            <select
+              id="motion"
+              value={settings.motion}
+              onChange={(event) => onChange({ ...settings, motion: event.target.value })}
+              className="w-full rounded-md border border-surface0/60 bg-base px-2 py-1.5 text-sm outline-none focus:border-mauve/70"
+            >
+              {MOTIONS.map((motion) => (
+                <option key={motion.id} value={motion.id}>
+                  {motion.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <section className="flex items-start gap-3">
-          <input
-            id="autosave"
-            type="checkbox"
-            checked={settings.autosave}
-            onChange={(event) => onChange({ ...settings, autosave: event.target.checked })}
-            className="mt-1 h-4 w-4 accent-mauve"
-          />
-          <label htmlFor="autosave" className="text-subtext1">
-            Salvamento automático
-            <span className="mt-0.5 block text-xs text-overlay0">
-              Desligado: a nota só é gravada quando você clica em Salvar.
-            </span>
-          </label>
-        </section>
-
-        <section className="border-t border-surface0/60 pt-4">
-          <label htmlFor="notes-root" className="mb-1.5 block text-subtext1">
-            Pasta das notas
-          </label>
-          <div className="flex gap-1.5">
+          <div>
+            <div className="mb-1.5 flex items-baseline justify-between">
+              <label htmlFor="scale" className="text-subtext1">
+                Tamanho da fonte
+              </label>
+              <span className="tabular-nums text-xs text-overlay0">{settings.font_scale}%</span>
+            </div>
             <input
-              id="notes-root"
-              value={root}
-              onChange={(event) => setRoot(event.target.value)}
-              placeholder={notesPath}
-              spellCheck={false}
-              className="min-w-0 flex-1 rounded-md border border-surface0/60 bg-base px-2 py-1 text-xs outline-none focus:border-mauve/70"
+              id="scale"
+              type="range"
+              min={80}
+              max={160}
+              step={5}
+              value={settings.font_scale}
+              onChange={(event) => onChange({ ...settings, font_scale: Number(event.target.value) })}
+              className="w-full accent-mauve"
             />
-            <button
-              onClick={() => onChange({ ...settings, notes_root: root.trim() || null })}
-              className="rounded-md bg-surface0 px-2 py-1 text-xs text-subtext1 transition hover:bg-surface1"
-            >
-              aplicar
-            </button>
-            <button
-              onClick={() => void invoke("open_notes_dir").catch(() => {})}
-              title="Abrir a pasta de notas"
-              className="rounded-md bg-surface0 px-2 py-1 text-xs text-subtext1 transition hover:bg-surface1"
-            >
-              abrir
-            </button>
           </div>
-          <p className="mt-1.5 break-all text-[0.65rem] text-overlay0">
-            vazio = padrão (~/HashiMemo/notes) · atual: {notesPath}
-          </p>
-        </section>
+        </Group>
 
-        <section className="border-t border-surface0/60 pt-4">
-          <div className="mb-2 flex items-baseline justify-between">
-            <span className="flex items-center gap-1.5 text-subtext1">
-              <Kami size={16} pose="bloqueado" />
-              Notas protegidas
-            </span>
-            <span className="text-xs text-overlay0">{hidden.length}</span>
+        <Group title="Janela">
+          <div>
+            <label htmlFor="minimize" className="mb-1.5 block text-subtext1">
+              Ao minimizar
+            </label>
+            <select
+              id="minimize"
+              value={settings.minimize_mode}
+              onChange={(event) => onChange({ ...settings, minimize_mode: event.target.value })}
+              className="w-full rounded-md border border-surface0/60 bg-base px-2 py-1.5 text-sm outline-none focus:border-mauve/70"
+            >
+              <option value="bubble">Bolinha (Kami)</option>
+              <option value="hide">Só ocultar</option>
+            </select>
           </div>
-          {!pin.set ? (
-            <div className="space-y-1.5">
-              <p className="text-xs leading-relaxed text-overlay0">
-                Ocultar uma nota cifra o conteúdo com um PIN. Sem o PIN, não há como ler.
-              </p>
+          <label className="flex items-start gap-2 text-subtext1">
+            <input
+              type="checkbox"
+              checked={settings.autostart}
+              onChange={(event) => onChange({ ...settings, autostart: event.target.checked })}
+              className="mt-0.5 h-4 w-4 accent-mauve"
+            />
+            <span>
+              Abrir com o sistema
+              <span className="mt-0.5 block text-xs text-overlay0">Inicia oculto na bandeja.</span>
+            </span>
+          </label>
+        </Group>
+
+        <Group title="Notas">
+          <div>
+            <label htmlFor="notes-root" className="mb-1.5 block text-subtext1">
+              Pasta das notas
+            </label>
+            <div className="flex gap-1.5">
+              <input
+                id="notes-root"
+                value={root}
+                onChange={(event) => setRoot(event.target.value)}
+                placeholder={notesPath}
+                spellCheck={false}
+                className="min-w-0 flex-1 rounded-md border border-surface0/60 bg-base px-2 py-1 text-xs outline-none focus:border-mauve/70"
+              />
               <button
-                onClick={() => onPin("create")}
+                onClick={() => onChange({ ...settings, notes_root: root.trim() || null })}
                 className="rounded-md bg-surface0 px-2 py-1 text-xs text-subtext1 transition hover:bg-surface1"
               >
-                criar PIN
+                aplicar
               </button>
-            </div>
-          ) : pin.unlocked ? (
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="text-subtext0">desbloqueado</span>
-                <div className="ml-auto flex gap-1">
-                  <button
-                    onClick={() => onPin("change")}
-                    className="rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1"
-                  >
-                    alterar
-                  </button>
-                  <button
-                    onClick={() => onPin("remove")}
-                    className="rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1"
-                  >
-                    remover
-                  </button>
-                  <button
-                    onClick={onLock}
-                    className="rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1"
-                  >
-                    travar
-                  </button>
-                </div>
-              </div>
-              {hidden.length === 0 ? (
-                <p className="text-overlay0">Nenhuma nota protegida. Botão direito na nota → Ocultar.</p>
-              ) : (
-                <ul className="space-y-1">
-                  {hidden.map((note) => (
-                    <li key={note.id} className="flex items-center gap-2">
-                      <span className="truncate text-subtext0">
-                        {note.title || "Nota protegida"}
-                      </span>
-                      <button
-                        onClick={() => onUnhide(note)}
-                        className="ml-auto shrink-0 rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1"
-                      >
-                        mostrar
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-subtext0">
-                {hidden.length} nota(s) cifrada(s) — 4 tentativas erradas apagam
-              </span>
               <button
-                onClick={() => onPin("unlock")}
-                className="ml-auto shrink-0 rounded bg-surface0 px-2 py-1 text-subtext1 transition hover:bg-surface1"
+                onClick={() => void invoke("open_notes_dir").catch(() => {})}
+                className="rounded-md bg-surface0 px-2 py-1 text-xs text-subtext1 transition hover:bg-surface1"
               >
-                desbloquear
+                abrir
               </button>
             </div>
-          )}
-        </section>
+            <p className="mt-1 break-all text-[0.6rem] text-overlay0">{notesPath}</p>
+          </div>
 
-        <section className="border-t border-surface0/60 pt-4">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-subtext1">Integração IA</p>
+          <label className="flex items-start gap-2 text-subtext1">
+            <input
+              type="checkbox"
+              checked={settings.autosave}
+              onChange={(event) => onChange({ ...settings, autosave: event.target.checked })}
+              className="mt-0.5 h-4 w-4 accent-mauve"
+            />
+            <span>
+              Salvamento automático
+              <span className="mt-0.5 block text-xs text-overlay0">
+                Desligado: só grava ao clicar em Salvar.
+              </span>
+            </span>
+          </label>
+
+          <div className="rounded-lg border border-surface0/60 bg-base/50 p-2.5">
+            <div className="flex items-center gap-2">
+              <Kami size={26} pose={pin.set && !pin.unlocked ? "bloqueado" : "feliz"} />
+              <Padlock open={pin.set && pin.unlocked} />
+              <span className="text-subtext1">Notas protegidas</span>
+              <span className="ml-auto text-xs text-overlay0">{hidden.length}</span>
+            </div>
+
+            {!pin.set ? (
+              <div className="mt-2 space-y-1.5">
+                <p className="text-xs leading-relaxed text-overlay0">
+                  Bloquear uma nota cifra o conteúdo com um PIN. Sem o PIN, não há como ler.
+                </p>
+                <button onClick={() => onPin("create")} className={small}>
+                  criar PIN
+                </button>
+              </div>
+            ) : pin.unlocked ? (
+              <div className="mt-2 space-y-2 text-xs">
+                <div className="flex items-center gap-1">
+                  <span className="text-subtext0">desbloqueado</span>
+                  <div className="ml-auto flex gap-1">
+                    <button onClick={() => onPin("change")} className={small}>
+                      alterar
+                    </button>
+                    <button onClick={() => onPin("remove")} className={small}>
+                      remover
+                    </button>
+                    <button onClick={onLock} className={small}>
+                      travar
+                    </button>
+                  </div>
+                </div>
+                {hidden.length === 0 ? (
+                  <p className="text-overlay0">Nenhuma nota bloqueada. Botão direito na nota → Bloquear.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {hidden.map((note) => (
+                      <li key={note.id} className="flex items-center gap-2">
+                        <span className="truncate text-subtext0">{note.title || "Nota protegida"}</span>
+                        <button onClick={() => onUnhide(note)} className={`ml-auto ${small}`}>
+                          mostrar
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <div className="mt-2 flex items-center gap-2 text-xs">
+                <span className="text-subtext0">
+                  {hidden.length} nota(s) cifrada(s) — 4 erros apagam
+                </span>
+                <button onClick={() => onPin("unlock")} className={`ml-auto ${small}`}>
+                  desbloquear
+                </button>
+              </div>
+            )}
+          </div>
+        </Group>
+
+        <Group title="Integração IA">
+          <div className="flex items-center justify-between">
+            <span className="text-subtext1">Texto para colar na sua IA</span>
             <button
               onClick={() => copyText(`Você tem acesso ao HashiMemo, um app local de notas em Markdown.\n\n- Pasta: C:\\Users\\voxdata\\HashiMemo\\notes (.md com frontmatter YAML: title, group, color, pinned, hidden, remind_at, protected)\n- CLI no PATH: hashimemo\n- Comandos: hashimemo list | search "termo" | read "id" | new --group OpenCode --title "Título" "corpo" | edit "trecho" --append "linha" | context --notes 5 | path\n- notas com protected: true estão cifradas e ilegíveis\n- grave o que for para o usuário no grupo OpenCode e responda só com o título\n- nunca copie senhas para o chat`)}
-              className="rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1"
+              className={small}
             >
               copiar
             </button>
@@ -849,22 +860,22 @@ function SettingsPanel({
             text={OPENCODE_HELP}
             className="rounded-md border border-surface0/60 bg-base/60 px-2.5 py-2 text-xs leading-relaxed text-subtext0 select-text"
           />
-        </section>
+        </Group>
 
-        <section className="space-y-1.5 border-t border-surface0/60 pt-4 text-xs text-overlay0">
-          <p className="flex justify-between gap-3">
+        <Group title="Sobre">
+          <p className="flex justify-between gap-3 text-xs text-overlay0">
             <span>Mostrar/ocultar</span>
             <kbd className="rounded bg-surface0/70 px-1.5 py-0.5 text-subtext1">Ctrl+Alt+N</kbd>
           </p>
-          <p className="flex justify-between gap-3">
+          <p className="flex justify-between gap-3 text-xs text-overlay0">
             <span>Voltar ao rail</span>
             <kbd className="rounded bg-surface0/70 px-1.5 py-0.5 text-subtext1">Esc</kbd>
           </p>
-          <p className="flex justify-between gap-3">
+          <p className="flex justify-between gap-3 text-xs text-overlay0">
             <span>Versão</span>
             <span className="tabular-nums text-subtext1">0.3.1</span>
           </p>
-        </section>
+        </Group>
       </div>
     </div>
   );
@@ -979,12 +990,12 @@ function PinDialog({
     remove: "Remover PIN",
   };
   const hints = {
-    create: "De 4 a 8 dígitos. Sem ele as notas protegidas não abrem.",
+    create: "De 4 a 8 dígitos. Sem ele as notas bloqueadas não abrem.",
     unlock: "4 tentativas erradas apagam as notas protegidas.",
     change: "O PIN atual cifra as notas; o novo passa a valer para todas.",
     remove: "Remove o PIN e devolve todas as notas ocultas à lista.",
   };
-  const digits = (text: string) => /^\d{4,8}$/.test(text);
+  const digits = (input: string) => /^\d{4,8}$/.test(input);
   const submit = () => {
     if (!digits(value)) return setLocal("use de 4 a 8 dígitos");
     if (mode === "change" && !digits(next)) return setLocal("o novo PIN precisa de 4 a 8 dígitos");
@@ -1021,16 +1032,10 @@ function PinDialog({
         )}
         {(local || error) && <p className="mt-2 text-xs text-red">{local || error}</p>}
         <div className="mt-3 flex justify-end gap-2 text-xs">
-          <button
-            onClick={onClose}
-            className="rounded-md px-2.5 py-1.5 text-subtext1 transition hover:bg-surface0"
-          >
+          <button onClick={onClose} className="rounded-md px-2.5 py-1.5 text-subtext1 transition hover:bg-surface0">
             cancelar
           </button>
-          <button
-            onClick={submit}
-            className="rounded-md bg-mauve px-2.5 py-1.5 font-medium text-crust transition hover:bg-lavender"
-          >
+          <button onClick={submit} className="rounded-md bg-mauve px-2.5 py-1.5 font-medium text-crust transition hover:bg-lavender">
             confirmar
           </button>
         </div>
@@ -1060,6 +1065,7 @@ export default function App() {
   const [menu, setMenu] = useState<{ note: Note; x: number; y: number } | null>(null);
   const [notice, setNotice] = useState("");
   const [collapsing, setCollapsing] = useState(false);
+  const [lockFlash, setLockFlash] = useState(false);
   const [pin, setPin] = useState<PinStatus>({ set: false, unlocked: false, fails: 0 });
   const [pinDialog, setPinDialog] = useState<{
     mode: "create" | "unlock" | "change" | "remove";
@@ -1343,6 +1349,10 @@ export default function App() {
           setNotice(String(error));
           setTimeout(() => setNotice(""), 5000);
         });
+      }
+      if (target) {
+        setLockFlash(true);
+        window.setTimeout(() => setLockFlash(false), 1500);
       }
       reload();
     },
@@ -2154,6 +2164,20 @@ export default function App() {
                 confirmar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {lockFlash && (
+        <div className="pointer-events-none absolute inset-0 z-[65] flex items-center justify-center bg-crust/45 backdrop-blur-[2px] pop-enter">
+          <div className="flex flex-col items-center gap-2">
+            <div className="relative">
+              <Kami size={92} pose="bloqueado" />
+              <span className="padlock-snap absolute right-0 -bottom-1">
+                <Padlock open={false} size={26} />
+              </span>
+            </div>
+            <span className="text-xs text-subtext0">Nota bloqueada</span>
           </div>
         </div>
       )}

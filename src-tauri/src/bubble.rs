@@ -196,8 +196,13 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
         _ => default_target(&main),
     };
 
+    crate::window::fade_out(app, &main);
+    let duration = crate::window::animation_ms(app);
+    std::thread::sleep(std::time::Duration::from_millis(duration + 40));
+
     let _ = main.hide();
     let _ = ball.set_size(PhysicalSize::new(SIZE, SIZE));
+    crate::window::reset_opacity(app);
     let _ = ball.set_position(PhysicalPosition::new(target.0, target.1));
     save_position(app, target.0, target.1);
     mark_placed();

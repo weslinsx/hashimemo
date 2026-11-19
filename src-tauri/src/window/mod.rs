@@ -186,6 +186,34 @@ fn level_rect(level: Level, work: Rect, right: i32, width: u32) -> Rect {
     }
 }
 
+pub fn fade_out(app: &AppHandle, window: &WebviewWindow) {
+    let duration = motion_ms(app);
+    if duration == 0 {
+        win::set_opacity(window, 0);
+        return;
+    }
+    let handle = window.clone();
+    std::thread::spawn(move || {
+        let steps = (duration / 20).max(4);
+        for step in 1..=steps {
+            let value = 255 - (255 * step / steps) as u8;
+            win::set_opacity(&handle, value);
+            std::thread::sleep(std::time::Duration::from_millis(duration / steps));
+        }
+        win::set_opacity(&handle, 0);
+    });
+}
+
+pub fn animation_ms(app: &AppHandle) -> u64 {
+    motion_ms(app)
+}
+
+pub fn reset_opacity(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
+        win::set_opacity(&window, 255);
+    }
+}
+
 fn motion_ms(app: &AppHandle) -> u64 {
     app.try_state::<crate::settings::SettingsState>()
         .map(|state| state.snapshot().motion)
@@ -213,7 +241,6 @@ fn apply(
         }
         Err(_) => (true, RAIL_WIDTH, None, None),
     };
-    let level = if docked { level } else { Level::Docked };
     let rail = docked && level == Level::Docked;
     let duration = motion_ms(app);
 
@@ -227,12 +254,18 @@ fn apply(
     let target = if docked {
         level_rect(level, work, right, width)
     } else {
-        let current = anim::current(window);
-        Rect {
-            x: floating.map(|(x, _)| x).unwrap_or(current.x),
-            y: floating.map(|(_, y)| y).unwrap_or(current.y),
-            w: width,
-            h: current.h.min(work.h),
+        match level {
+            Level::Docked => {
+                let current = anim::current(window);
+                Rect {
+                    x: floating.map(|(x, _)| x).unwrap_or(current.x),
+                    y: floating.map(|(_, y)| y).unwrap_or(current.y),
+                    w: width,
+                    h: current.h.min(work.h),
+                }
+            }
+            Level::Focus => centered(work, 0.7),
+            Level::Max => work,
         }
     };
 
@@ -244,8 +277,17 @@ fn apply(
     ));
 
     let _ = window.set_always_on_top(rail);
-    let _ = window.set_skip_taskbar(!docked);
-    let _ = window.set_resizable(!docked);
+    let _ = window.set_skip_taskbar(docked && level == Level::Docked);
+    let free = !rail;
+    let _ = window.set_resizable(free);
+    if free && level == Level::Focus {
+        let fixed = target.w.max(64);
+        let _ = window.set_min_size(Some(PhysicalSize::new(fixed, 300)));
+        let _ = window.set_max_size(Some(PhysicalSize::new(fixed, work.h.max(300))));
+    } else {
+        let _ = window.set_min_size(Some(PhysicalSize::new(64, 64)));
+        let _ = window.set_max_size(None::<PhysicalSize<u32>>);
+    }
     win::remove_native_frame(window);
     win::set_round(window, true);
 
@@ -394,6 +436,7 @@ pub fn show_docked(app: &AppHandle, from: Option<(i32, i32, u32, u32)>, animated
     let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
         return;
     };
+    win::set_opacity(&window, 255);
     if let Some((x, y, w, h)) = from {
         let _ = window.set_size(PhysicalSize::new(w, h));
         let _ = window.set_position(PhysicalPosition::new(x, y));
