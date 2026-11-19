@@ -1,3 +1,4 @@
+//! Criptografia do cofre: Argon2id (PIN -> chave) e AES-256-GCM (título/corpo).
 use std::sync::Mutex;
 
 use aes_gcm::{

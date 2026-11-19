@@ -1,3 +1,4 @@
+//! Utilitários de geometria (Rect/current). A animação visível das trocas de nível é CSS.
 use tauri::{PhysicalPosition, PhysicalSize, WebviewWindow};
 
 #[derive(Clone, Copy, Debug)]

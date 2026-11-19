@@ -1,3 +1,4 @@
+//! Reserva a borda direita como AppBar e restaura a work area ao sair (multi-monitor).
 #[cfg(windows)]
 mod imp {
     use std::sync::Mutex;

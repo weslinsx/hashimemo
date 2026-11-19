@@ -1,3 +1,4 @@
+//! Mascote: 18 poses em PNG; cada pose tem uma classe de animação CSS (kami-*).
 import idle from "./assets/kami/idle.png";
 import rosto from "./assets/kami/rosto.png";
 import espiando from "./assets/kami/espiando.png";

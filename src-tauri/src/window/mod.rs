@@ -1,3 +1,6 @@
+//! Máquina de estados da janela: Docked (rail), Focus (70%) e Max (work area).
+//! `apply` é o único ponto que move a janela; AppBar/geometria saem daqui.
+//! `generation` invalida animações/settle antigos a cada mudança de nível.
 mod anim;
 mod appbar;
 #[cfg(target_os = "linux")]
@@ -240,6 +243,9 @@ fn apply(
         }
         Err(_) => (true, RAIL_WIDTH, None, None),
     };
+    // Invalida qualquer settle pendente: um settle antigo não pode reposicionar a janela depois
+    // que o nível mudou (era a causa do rail "puxar" a janela de volta ao abrir Foco/Max).
+    state.generation.fetch_add(1, Ordering::SeqCst);
     let rail = docked && level == Level::Docked;
     let duration = motion_ms(app);
 
@@ -319,6 +325,8 @@ fn apply(
 
 
 fn settle(window: WebviewWindow, target: Rect, generation: Arc<AtomicU64>) {
+    // Reaplica a geometria por ~2s apenas para o rail, porque o shell pode ajustar a janela
+    // depois da reserva de AppBar. Qualquer novo `apply` incrementa a geração e encerra este loop.
     let token = generation.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::spawn(move || {
         for _ in 0..22 {

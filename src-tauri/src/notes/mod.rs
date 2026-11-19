@@ -1,3 +1,4 @@
+//! Comandos de notas: listar/criar/editar/excluir, proteger (cifrar) e mídia colada.
 mod store;
 
 pub use store::{Note, Store};

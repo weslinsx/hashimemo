@@ -1,3 +1,4 @@
+//! Renderer Markdown minimalista em React (sem HTML cru, sem XSS): usado nos cards e textos.
 import type { ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 

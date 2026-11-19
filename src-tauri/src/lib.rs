@@ -1,3 +1,5 @@
+//! Entrada do app: monta o Tauri, plugins, tray, hotkey global e registra os comandos.
+//! `toggle_rail` centraliza o comportamento de mostrar/ocultar/minimizar (modo do settings).
 mod bubble;
 mod capture;
 mod pin;

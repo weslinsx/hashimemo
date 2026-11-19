@@ -1,3 +1,6 @@
+//! App inteiro em um arquivo: header, abas de grupo, lista, editor, configs, modais e PIN.
+//! Estado: `win` (nível), `notes` (lista), `draft` (nota aberta), `settings`, `pin`, `flash`.
+//! Fluxo de nota: abrir -> applyDraft (autosave) ou salvar manual; protegidas usam set_protected.
 import {
   Fragment,
   useCallback,
@@ -58,6 +61,14 @@ const THEMES = [
   { id: "latte", label: "Catppuccin Latte (claro)" },
   { id: "breeze", label: "Breeze Dark" },
 ];
+
+const MOTION_MS: Record<string, number> = {
+  off: 0,
+  fast: 240,
+  fluid: 420,
+  smooth: 600,
+  slow: 800,
+};
 
 const MOTIONS = [
   { id: "off", label: "Desligado" },
@@ -1075,6 +1086,7 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [collapsing, setCollapsing] = useState(false);
   const [levelPop, setLevelPop] = useState(false);
+  const popTimer = useRef<number>(0);
   const [flash, setFlash] = useState<{ open: boolean; label: string } | null>(null);
   const [pin, setPin] = useState<PinStatus>({ set: false, unlocked: false, fails: 0 });
   const [pinDialog, setPinDialog] = useState<{
@@ -1144,7 +1156,11 @@ export default function App() {
     });
     const level = listen("window:level", () => {
       setLevelPop(true);
-      window.setTimeout(() => setLevelPop(false), 320);
+      window.clearTimeout(popTimer.current);
+      popTimer.current = window.setTimeout(
+        () => setLevelPop(false),
+        (MOTION_MS[settings.motion] ?? 420) + 120,
+      );
     });
     const reset = () => setCollapsing(false);
     window.addEventListener("focus", reset);
@@ -1154,7 +1170,7 @@ export default function App() {
       void level.then((off) => off());
       window.removeEventListener("focus", reset);
     };
-  }, [reload]);
+  }, [reload, settings.motion]);
 
   useEffect(() => {
     document.documentElement.style.setProperty("--scale", String(settings.font_scale / 100));

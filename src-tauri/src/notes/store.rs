@@ -1,3 +1,4 @@
+//! Persistência: um .md por nota em Markdown + frontmatter YAML; resolve caminho por id.
 use std::{
     fs, io,
     path::PathBuf,

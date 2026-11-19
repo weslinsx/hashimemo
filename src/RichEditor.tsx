@@ -1,3 +1,4 @@
+//! Editor TipTap: markdown ao redor, toolbar, atalhos e inserção de capturas/colagens.
 import { useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { EditorContent, useEditor, type Editor as TiptapEditor } from "@tiptap/react";

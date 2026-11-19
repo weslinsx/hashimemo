@@ -1,4 +1,5 @@
-﻿use std::{
+//! Janela "bolinha" (Kami dormindo): posição persistida, snap nas bordas e restauro.
+use std::{
     sync::{
         Mutex,
         atomic::{AtomicU64, Ordering},

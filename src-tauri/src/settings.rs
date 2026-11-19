@@ -1,3 +1,4 @@
+//! Preferências persistidas em settings.json (tema, motion, autosave, cofre, bolinha).
 use std::{
     path::PathBuf,
     sync::Mutex,

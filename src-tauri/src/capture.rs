@@ -1,3 +1,4 @@
+//! Captura da janela ativa (GDI), grava PNG em media/ e devolve app/título/URL.
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 

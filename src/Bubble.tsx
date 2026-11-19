@@ -1,3 +1,4 @@
+//! Conteúdo da janela bolinha: Kami dormindo, arrasto nativo, snap e menu de contexto.
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";

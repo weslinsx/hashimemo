@@ -1,3 +1,4 @@
+//! Comandos do PIN: criar, desbloquear, travar, trocar e remover (4 erros apagam).
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
