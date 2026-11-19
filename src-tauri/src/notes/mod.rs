@@ -287,7 +287,11 @@ pub fn set_protected(
         note.hidden = true;
         conceal(&mut note, &key)?;
     } else {
+        reveal(&mut note, &vault);
+        note.protected = false;
         note.hidden = false;
+        note.secret_title.clear();
+        note.secret_body.clear();
     }
     let saved = with_store(&state, |store| store.save(note))?.map_err(|error| error.to_string())?;
     if protected && !plain.is_empty() {

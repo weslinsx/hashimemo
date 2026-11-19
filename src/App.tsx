@@ -569,17 +569,22 @@ function Editor({
   );
 }
 
-const OPENCODE_HELP = `Cole na IA que você usa (ChatGPT, Claude, Gemini, Copilot ou agente local) para ela ler e gravar nas suas notas.
+const OPENCODE_HELP = `Cole este texto na IA que você usa: ela instala o HashiMemo e a skill de notas no ambiente dela.
 
 ---
 
-Você tem acesso ao HashiMemo, um app local de notas em Markdown.
+Instale e configure o HashiMemo neste ambiente.
 
-- As notas ficam na pasta configurada no app (Configurações → Pasta das notas): um arquivo .md por nota, com frontmatter YAML (title, group, color, pinned, hidden, remind_at, protected).
-- Se o CLI \`hashimemo\` estiver disponível: \`list\`, \`search "termo"\`, \`read "id"\`, \`new --group OpenCode --title "Título" "corpo"\`, \`edit "trecho" --append "linha"\`, \`context --notes 5\`, \`path\`.
-- Notas com \`protected: true\` estão cifradas e ilegíveis para você.
-- Grave no grupo \`OpenCode\` o que for para o usuário ler e responda apenas com o título.
-- Nunca copie senhas ou segredos para o chat.`;
+1. Descubra os caminhos padrão do sistema: onde ficam aplicativos instalados, onde ficam as skills/instruções do próprio agente e qual é a pasta de documentos do usuário.
+2. Instale o HashiMemo (aplicativo desktop, Windows ou Linux) e garanta que o comando \`hashimemo\` fique disponível no PATH.
+3. Crie a pasta de notas do app: um arquivo .md por nota, com frontmatter YAML contendo title, group, color, pinned, hidden, remind_at e protected.
+4. Registre a skill de notas nas suas instruções, com estas regras:
+   - listar, buscar, ler, criar e editar notas pela CLI (\`list\`, \`search\`, \`read\`, \`new\`, \`edit\`, \`context\`, \`path\`);
+   - escrever em Markdown curto, sem conversa;
+   - guardar em um grupo chamado IA tudo que for para o usuário ler;
+   - nunca copiar senhas ou segredos para o chat;
+   - notas com protected: true estão cifradas e não podem ser lidas.
+5. Confirme os caminhos descobertos, crie uma nota de teste no grupo IA e mostre o conteúdo lido de volta.`;
 
 function copyText(value: string) {
   void navigator.clipboard.writeText(value).catch(() => {});
@@ -626,6 +631,7 @@ function SettingsPanel({
   pin,
   onChange,
   onUnhide,
+  onOpenNote,
   onPin,
   onLock,
   onClose,
@@ -636,6 +642,7 @@ function SettingsPanel({
   pin: PinStatus;
   onChange: (next: Settings) => void;
   onUnhide: (note: Note) => void;
+  onOpenNote: (note: Note) => void;
   onPin: (mode: "create" | "unlock" | "change" | "remove") => void;
   onLock: () => void;
   onClose: () => void;
@@ -824,8 +831,11 @@ function SettingsPanel({
                     {hidden.map((note) => (
                       <li key={note.id} className="flex items-center gap-2">
                         <span className="truncate text-subtext0">{note.title || "Nota protegida"}</span>
-                        <button onClick={() => onUnhide(note)} className={`ml-auto ${small}`}>
+                        <button onClick={() => onOpenNote(note)} className={`ml-auto ${small}`}>
                           mostrar
+                        </button>
+                        <button onClick={() => onUnhide(note)} className={small}>
+                          restaurar
                         </button>
                       </li>
                     ))}
@@ -849,7 +859,7 @@ function SettingsPanel({
           <div className="flex items-center justify-between">
             <span className="text-subtext1">Texto para colar na sua IA</span>
             <button
-              onClick={() => copyText(`Cole na IA que você usa para ela ler e gravar nas suas notas.\n\nVocê tem acesso ao HashiMemo, um app local de notas em Markdown.\n- Notas na pasta configurada no app: um .md por nota com frontmatter YAML (title, group, color, pinned, hidden, remind_at, protected).\n- CLI opcional: hashimemo list | search "termo" | read "id" | new --group OpenCode --title "Título" "corpo" | edit "trecho" --append "linha" | context --notes 5 | path.\n- Notas com protected: true estão cifradas.\n- Grave no grupo OpenCode o que for para o usuário e responda só com o título.\n- Nunca copie senhas para o chat.`)}
+              onClick={() => copyText(`Instale e configure o HashiMemo neste ambiente.\n\n1. Descubra os caminhos padrão do sistema (apps instalados, skills do agente, documentos do usuário).\n2. Instale o HashiMemo (desktop, Windows ou Linux) e deixe o comando hashimemo no PATH.\n3. Crie a pasta de notas: um .md por nota com frontmatter YAML (title, group, color, pinned, hidden, remind_at, protected).\n4. Registre a skill de notas: listar/buscar/ler/criar/editar pela CLI (list, search, read, new, edit, context, path); guardar no grupo IA o que for para o usuário; nunca copiar senhas; notas com protected: true são cifradas.\n5. Confirme os caminhos, crie uma nota de teste no grupo IA e leia de volta.`)}
               className={small}
             >
               copiar
@@ -1064,6 +1074,7 @@ export default function App() {
   const [menu, setMenu] = useState<{ note: Note; x: number; y: number } | null>(null);
   const [notice, setNotice] = useState("");
   const [collapsing, setCollapsing] = useState(false);
+  const [levelPop, setLevelPop] = useState(false);
   const [flash, setFlash] = useState<{ open: boolean; label: string } | null>(null);
   const [pin, setPin] = useState<PinStatus>({ set: false, unlocked: false, fails: 0 });
   const [pinDialog, setPinDialog] = useState<{
@@ -1131,11 +1142,16 @@ export default function App() {
     const collapse = listen("app:collapse", () => {
       setCollapsing(true);
     });
+    const level = listen("window:level", () => {
+      setLevelPop(true);
+      window.setTimeout(() => setLevelPop(false), 320);
+    });
     const reset = () => setCollapsing(false);
     window.addEventListener("focus", reset);
     return () => {
       void unlisten.then((off) => off());
       void collapse.then((off) => off());
+      void level.then((off) => off());
       window.removeEventListener("focus", reset);
     };
   }, [reload]);
@@ -1839,7 +1855,7 @@ export default function App() {
     <div
       className={`relative flex h-full flex-col bg-base text-text transition-[transform,opacity] duration-300 ${
         collapsing ? "app-collapsing" : ""
-      }`}
+      } ${levelPop ? "level-pop" : ""}`}
       onContextMenu={(event) => event.preventDefault()}
     >
       <header
@@ -2156,6 +2172,10 @@ export default function App() {
           pin={pin}
           onChange={persist}
           onUnhide={(note) => void toggleHidden(note)}
+          onOpenNote={(note) => {
+            setPanel(false);
+            open(note);
+          }}
           onPin={(mode) => setPinDialog({ mode })}
           onLock={() => void lockNotes()}
           onClose={closeSettings}

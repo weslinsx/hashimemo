@@ -14,7 +14,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, WindowEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, WindowEvent,
 };
 
 use anim::Rect;
@@ -296,15 +296,12 @@ fn apply(
             }
         }
     } else if animated && duration > 0 {
-        anim::animate(
-            window.clone(),
-            anim::current(window),
-            target,
-            state.generation.clone(),
-            band,
-            duration,
-            !docked,
-        );
+        let _ = app.emit_to(WINDOW_LABEL, "window:level", ());
+        win::place(window, target.x, target.y, target.w, target.h);
+        if let Some((left, top, right, bottom)) = band {
+            appbar::reserve(window, left, top, right, bottom);
+            settle(window.clone(), target, state.generation.clone());
+        }
     } else {
         win::place(window, target.x, target.y, target.w, target.h);
         if let Some((left, top, right, bottom)) = band {
