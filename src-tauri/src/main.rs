@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use clap::{Parser, Subcommand};
 use hashimemo_lib::notes::Store;
 
@@ -110,7 +112,19 @@ fn fail(message: &str) -> ! {
     std::process::exit(1)
 }
 
+#[cfg(windows)]
+fn attach_console() {
+    use windows::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
+    unsafe {
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+}
+
 fn main() {
+    if std::env::args().len() > 1 {
+        #[cfg(windows)]
+        attach_console();
+    }
     let cli = Cli::parse();
     let Some(command) = cli.command else {
         hashimemo_lib::run();

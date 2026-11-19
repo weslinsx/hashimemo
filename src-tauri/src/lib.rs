@@ -37,6 +37,7 @@ fn toggle_rail(app: &AppHandle) {
         if let Some(ball) = app.get_webview_window("bubble") {
             let _ = ball.hide();
         }
+        window::reset_opacity(app);
         let _ = window.show();
         window::reapply(app);
         let _ = window.set_focus();

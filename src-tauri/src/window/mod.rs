@@ -194,20 +194,15 @@ pub fn animation_ms(app: &AppHandle) -> u64 {
 }
 
 pub fn fade_out(_app: &AppHandle, window: &WebviewWindow, duration: u64) {
-    if duration == 0 {
-        win::set_opacity(window, 0);
-        return;
+    // Síncrono de propósito: um fade em thread podia terminar depois do restore e deixar a
+    // janela com alfa 0 (tela preta). Aqui ele sempre termina antes de esconder/mostrar.
+    let steps = (duration / 20).max(4);
+    for step in 1..=steps {
+        let value = 255 - (255 * step / steps) as u8;
+        win::set_opacity(window, value);
+        std::thread::sleep(std::time::Duration::from_millis(duration / steps));
     }
-    let handle = window.clone();
-    std::thread::spawn(move || {
-        let steps = (duration / 20).max(4);
-        for step in 1..=steps {
-            let value = 255 - (255 * step / steps) as u8;
-            win::set_opacity(&handle, value);
-            std::thread::sleep(std::time::Duration::from_millis(duration / steps));
-        }
-        win::set_opacity(&handle, 0);
-    });
+    win::set_opacity(window, 0);
 }
 
 pub fn reset_opacity(app: &AppHandle) {
