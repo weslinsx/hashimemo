@@ -171,7 +171,7 @@ fn default_target(main: &WebviewWindow) -> (i32, i32) {
     let width = area.size.width as i32;
     let height = area.size.height as i32;
     let x = left + width - SIZE as i32 - MARGIN;
-    let y = 185.clamp(top, top + height - SIZE as i32 - 1);
+    let y = (top + 185).clamp(top, top + height - SIZE as i32 - 1);
     (x, y)
 }
 
@@ -259,10 +259,11 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
     let _ = ball.show();
     let _ = app.emit_to(LABEL, "bubble:show", ());
 
-    let fade = ms.min(240);
+    let fade = ms.min(200);
     crate::window::fade_out(app, &main, fade);
 
     let _ = main.hide();
+    crate::window::reset_opacity(app);
     let _ = ball.set_size(PhysicalSize::new(SIZE, SIZE));
     crate::window::reset_opacity(app);
     let _ = ball.set_position(PhysicalPosition::new(target.0, target.1));
@@ -387,14 +388,22 @@ pub fn bubble_menu_open(app: AppHandle) -> Result<(), String> {
     let window = bubble(&app).ok_or("bolinha ausente")?;
     let position = window.outer_position().map_err(|e| e.to_string())?;
     let (left, top, width, height) = work_area(&window).ok_or("sem monitor")?;
-    let mut x = position.x;
-    let mut y = position.y;
-    if position.x + SIZE as i32 > left + width / 2 {
-        x = position.x - (MENU_WIDTH as i32 - SIZE as i32);
-    }
-    if position.y + SIZE as i32 > top + height / 2 {
-        y = position.y - (MENU_HEIGHT as i32 - SIZE as i32);
-    }
+    let extra_x = MENU_WIDTH as i32 - SIZE as i32;
+    let extra_y = MENU_HEIGHT as i32 - SIZE as i32;
+    let prefer_x = if position.x - extra_x < left {
+        position.x
+    } else {
+        position.x - extra_x
+    };
+    let prefer_y = if position.y - extra_y < top {
+        position.y
+    } else {
+        position.y - extra_y
+    };
+    let max_x = left + width - MENU_WIDTH as i32;
+    let max_y = top + height - MENU_HEIGHT as i32;
+    let x = prefer_x.clamp(left, max_x);
+    let y = prefer_y.clamp(top, max_y);
     if let Ok(mut slot) = BEFORE_MENU.lock() {
         *slot = Some((position.x, position.y));
     }
