@@ -293,7 +293,7 @@ fn apply(
         }
     } else if animated && duration > 0 {
         let _ = app.emit_to(WINDOW_LABEL, "window:level", ());
-        win::place(window, target.x, target.y, target.w, target.h);
+        dissolve_place(window, target);
         if let Some((left, top, right, bottom)) = band {
             appbar::reserve(window, left, top, right, bottom);
             settle(window.clone(), target, state.generation.clone());
@@ -318,6 +318,22 @@ fn apply(
     }
 }
 
+
+
+fn dissolve_place(window: &WebviewWindow, target: Rect) {
+    // Troca de forma sem animar tamanho de janela (que engasga no WebView):
+    // desbota -> aplica a geometria final -> volta a opacidade. Parece um morph suave.
+    for step in 1..=4 {
+        win::set_opacity(window, 255 - (255 * step / 4) as u8);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    win::place(window, target.x, target.y, target.w, target.h);
+    for step in 0..=6 {
+        win::set_opacity(window, (255 * step / 6) as u8);
+        std::thread::sleep(std::time::Duration::from_millis(28));
+    }
+    win::set_opacity(window, 255);
+}
 
 fn settle(window: WebviewWindow, target: Rect, generation: Arc<AtomicU64>) {
     // Reaplica a geometria por ~2s apenas para o rail, porque o shell pode ajustar a janela
@@ -433,6 +449,7 @@ pub fn show_docked(app: &AppHandle, from: Option<(i32, i32, u32, u32)>, animated
         let _ = window.set_size(PhysicalSize::new(w, h));
         let _ = window.set_position(PhysicalPosition::new(x, y));
     }
+    let _ = app.emit_to(WINDOW_LABEL, "app:expand", ());
     let _ = window.show();
     let state = app.state::<AppState>();
     if let Ok(mut inner) = state.inner.lock() {

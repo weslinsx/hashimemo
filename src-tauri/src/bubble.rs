@@ -175,6 +175,42 @@ fn default_target(main: &WebviewWindow) -> (i32, i32) {
     (x, y)
 }
 
+fn snap_to_edge(window: &WebviewWindow, position: (i32, i32)) -> (i32, i32) {
+    let Some((left, top, width, height)) = work_area(window) else {
+        return position;
+    };
+    let size = SIZE as i32;
+    let distances = [
+        (
+            (position.0 - left).abs(),
+            (left + MARGIN, position.1.min(top + height - size - MARGIN).max(top + MARGIN)),
+        ),
+        (
+            (left + width - (position.0 + size)).abs(),
+            (
+                left + width - size - MARGIN,
+                position.1.min(top + height - size - MARGIN).max(top + MARGIN),
+            ),
+        ),
+        (
+            (position.1 - top).abs(),
+            (position.0.min(left + width - size - MARGIN).max(left + MARGIN), top + MARGIN),
+        ),
+        (
+            (top + height - (position.1 + size)).abs(),
+            (
+                position.0.min(left + width - size - MARGIN).max(left + MARGIN),
+                top + height - size - MARGIN,
+            ),
+        ),
+    ];
+    distances
+        .into_iter()
+        .min_by_key(|(distance, _)| *distance)
+        .map(|(_, value)| value)
+        .unwrap_or(position)
+}
+
 pub fn minimize(app: &AppHandle) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("janela principal ausente")?;
     let ball = bubble(app).ok_or("bolinha ausente")?;
@@ -190,16 +226,25 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
         (Some(x), Some(y)) => Some((x, y)),
         _ => None,
     });
-    let target = match stored {
+    let base = match stored {
         Some((x, y)) if docked.as_ref().is_some_and(|monitor| on_monitor(&main, monitor, x, y)) => {
             (x, y)
         }
         _ => default_target(&main),
     };
+    let target = snap_to_edge(&ball, base);
 
     let ms = crate::window::animation_ms(app).max(220);
-    crate::window::fade_out(app, &main, ms);
-    std::thread::sleep(std::time::Duration::from_millis(ms + 80));
+    // bolinha aparece já; o rail desbota em paralelo
+    let _ = ball.set_size(PhysicalSize::new(SIZE, SIZE));
+    let _ = ball.set_position(PhysicalPosition::new(target.0, target.1));
+    save_position(app, target.0, target.1);
+    mark_placed();
+    let _ = ball.show();
+    let _ = app.emit_to(LABEL, "bubble:show", ());
+
+    let fade = ms.min(240);
+    crate::window::fade_out(app, &main, fade);
 
     let _ = main.hide();
     let _ = ball.set_size(PhysicalSize::new(SIZE, SIZE));

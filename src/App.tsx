@@ -1086,6 +1086,7 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [collapsing, setCollapsing] = useState(false);
   const [levelPop, setLevelPop] = useState(false);
+  const [expanding, setExpanding] = useState(false);
   const popTimer = useRef<number>(0);
   const [flash, setFlash] = useState<{ open: boolean; label: string } | null>(null);
   const [pin, setPin] = useState<PinStatus>({ set: false, unlocked: false, fails: 0 });
@@ -1154,6 +1155,11 @@ export default function App() {
     const collapse = listen("app:collapse", () => {
       setCollapsing(true);
     });
+    const expand = listen("app:expand", () => {
+      setExpanding(true);
+      window.clearTimeout(popTimer.current);
+      popTimer.current = window.setTimeout(() => setExpanding(false), 700);
+    });
     const level = listen("window:level", () => {
       setLevelPop(true);
       window.clearTimeout(popTimer.current);
@@ -1168,6 +1174,7 @@ export default function App() {
       void unlisten.then((off) => off());
       void collapse.then((off) => off());
       void level.then((off) => off());
+      void expand.then((off) => off());
       window.removeEventListener("focus", reset);
     };
   }, [reload, settings.motion]);
@@ -1871,7 +1878,7 @@ export default function App() {
     <div
       className={`app-root relative flex h-full flex-col bg-base text-text ${
         collapsing ? "app-collapsing" : ""
-      } ${levelPop ? "level-pop" : ""}`}
+      } ${levelPop ? "level-pop" : ""} ${expanding ? "app-expanding" : ""}`}
       onContextMenu={(event) => event.preventDefault()}
     >
       <header
