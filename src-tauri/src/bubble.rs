@@ -23,6 +23,7 @@ const MENU_HEIGHT: u32 = 158;
 static PLACED: Mutex<bool> = Mutex::new(false);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static BEFORE_MENU: Mutex<Option<(i32, i32)>> = Mutex::new(None);
+static SETTLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn bubble(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(LABEL)
@@ -100,7 +101,7 @@ fn slide_position(window: WebviewWindow, from: (i32, i32), to: (i32, i32)) {
 }
 
 fn snap(app: &AppHandle, window: &WebviewWindow) {
-    if locked(app) {
+    if locked(app) || SETTLING.load(std::sync::atomic::Ordering::SeqCst) {
         return;
     }
     let Ok(position) = window.outer_position() else {
@@ -257,12 +258,17 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
     let _ = main.hide();
     crate::window::reset_opacity(app);
 
+    SETTLING.store(true, std::sync::atomic::Ordering::SeqCst);
     let _ = ball.set_size(PhysicalSize::new(SIZE, SIZE));
     let _ = ball.set_position(PhysicalPosition::new(target.0, target.1));
     save_position(app, target.0, target.1);
     mark_placed();
     let _ = ball.show();
     let _ = app.emit_to(LABEL, "bubble:show", ());
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_millis(700));
+        SETTLING.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
     Ok(())
 }
 
