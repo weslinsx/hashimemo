@@ -171,7 +171,7 @@ fn default_target(main: &WebviewWindow) -> (i32, i32) {
     let width = area.size.width as i32;
     let height = area.size.height as i32;
     let x = left + width - SIZE as i32 - MARGIN;
-    let y = (top + 185).clamp(top, top + height - SIZE as i32 - 1);
+    let y = 185.clamp(top, top + height - SIZE as i32 - 1);
     (x, y)
 }
 

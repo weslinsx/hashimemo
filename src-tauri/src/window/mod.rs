@@ -504,10 +504,13 @@ pub fn reset_windows(app: &AppHandle) {
         inner.floating = None;
         inner.monitor = None;
     }
+    win::set_opacity(&window, 255);
+    let _ = window.show();
     apply(app, &window, &state, Level::Docked, true);
     if let Some(ball) = app.get_webview_window("bubble") {
         let _ = ball.hide();
     }
+    let _ = window.set_focus();
 }
 
 fn snapshot(window: &WebviewWindow, state: &AppState) -> WindowState {
