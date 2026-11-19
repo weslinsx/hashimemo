@@ -118,12 +118,12 @@ export function Bubble() {
           }}
           title="Abrir HashiMemo (botão direito: opções)"
           className={`soap-bubble relative flex h-[64px] w-[64px] items-center justify-center rounded-full transition-transform active:scale-95 ${
-            locked ? "cursor-pointer" : "cursor-grab hover:scale-105"
+            locked ? "cursor-pointer" : "cursor-grab hover:scale-[1.03]"
           } ${pressed ? "scale-95" : ""}`}
         >
           <Kami
-            pose={waking ? "waking" : "sleeping"}
-            size={54}
+            pose={waking ? "acordando" : "dormindo"}
+            size={50}
             className={waking ? "" : "kami-breathe"}
           />
           {!waking && (

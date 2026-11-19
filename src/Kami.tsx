@@ -1,41 +1,58 @@
-import head from "./assets/kami/head.png";
-import neutral from "./assets/kami/neutral.png";
-import peeking from "./assets/kami/peeking.png";
-import sleeping from "./assets/kami/sleeping.png";
-import waking from "./assets/kami/waking.png";
-import happy from "./assets/kami/happy.png";
-import surprised from "./assets/kami/surprised.png";
-import locked from "./assets/kami/locked.png";
+import idle from "./assets/kami/idle.png";
+import rosto from "./assets/kami/rosto.png";
+import espiando from "./assets/kami/espiando.png";
+import dormindo from "./assets/kami/dormindo.png";
+import cochilando from "./assets/kami/cochilando.png";
+import acordando from "./assets/kami/acordando.png";
+import feliz from "./assets/kami/feliz.png";
+import surpreso from "./assets/kami/surpreso.png";
+import bloqueado from "./assets/kami/bloqueado.png";
 
 export type KamiPose =
-  | "head"
-  | "neutral"
-  | "peeking"
-  | "sleeping"
-  | "waking"
-  | "happy"
-  | "surprised"
-  | "locked";
+  | "idle"
+  | "rosto"
+  | "espiando"
+  | "dormindo"
+  | "cochilando"
+  | "acordando"
+  | "feliz"
+  | "surpreso"
+  | "bloqueado";
 
 const SOURCE: Record<KamiPose, string> = {
-  head,
-  neutral,
-  peeking,
-  sleeping,
-  waking,
-  happy,
-  surprised,
-  locked,
+  idle,
+  rosto,
+  espiando,
+  dormindo,
+  cochilando,
+  acordando,
+  feliz,
+  surpreso,
+  bloqueado,
+};
+
+const MOTION: Record<KamiPose, string> = {
+  idle: "kami-breathe",
+  rosto: "kami-blink",
+  espiando: "kami-peek",
+  dormindo: "kami-breathe",
+  cochilando: "kami-breathe-slow",
+  acordando: "kami-stretch",
+  feliz: "kami-hop",
+  surpreso: "kami-shake",
+  bloqueado: "kami-sway",
 };
 
 export function Kami({
   size = 20,
-  pose = "head",
+  pose = "rosto",
   className = "",
+  animate = true,
 }: {
   size?: number;
   pose?: KamiPose;
   className?: string;
+  animate?: boolean;
 }) {
   return (
     <img
@@ -44,7 +61,7 @@ export function Kami({
       height={size}
       alt=""
       draggable={false}
-      className={`shrink-0 object-contain select-none ${className}`}
+      className={`shrink-0 object-contain select-none ${animate ? MOTION[pose] : ""} ${className}`}
     />
   );
 }

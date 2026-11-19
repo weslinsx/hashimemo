@@ -234,13 +234,13 @@
   .soap-bubble {
     overflow: visible;
     background:
-      radial-gradient(circle at 30% 26%, rgb(255 255 255 / 0.95) 0 5%, rgb(255 255 255 / 0.3) 9%, transparent 24%),
-      radial-gradient(circle at 72% 76%, rgb(137 180 250 / 0.5), transparent 55%),
-      radial-gradient(circle at 28% 78%, rgb(245 194 231 / 0.55), transparent 58%),
-      radial-gradient(circle at 50% 50%, rgb(148 226 213 / 0.3), rgb(30 30 46 / 0.55) 72%);
+      radial-gradient(circle at 22% 18%, rgb(255 255 255 / 0.55) 0 4%, rgb(255 255 255 / 0.12) 9%, transparent 22%),
+      radial-gradient(circle at 78% 80%, rgb(137 180 250 / 0.42), transparent 52%),
+      radial-gradient(circle at 26% 80%, rgb(245 194 231 / 0.42), transparent 55%),
+      radial-gradient(circle at 50% 50%, rgb(148 226 213 / 0.22), rgb(30 30 46 / 0.5) 74%);
     border: 1px solid rgb(255 255 255 / 0.55);
     box-shadow:
-      inset 0 0 18px rgb(255 255 255 / 0.35),
+      inset 0 0 14px rgb(255 255 255 / 0.24),
       inset -6px -8px 18px rgb(203 166 247 / 0.35),
       0 10px 30px -10px rgb(0 0 0 / 0.85);
     animation: soap-float 4.6s ease-in-out infinite;
@@ -249,10 +249,40 @@
   .soap-bubble::after {
     content: "";
     position: absolute;
-    inset: 6px;
+    inset: 8px;
     border-radius: 999px;
-    background: radial-gradient(circle at 68% 30%, rgb(255 255 255 / 0.45), transparent 42%);
+    background: radial-gradient(circle at 24% 20%, rgb(255 255 255 / 0.28), transparent 38%);
     pointer-events: none;
+  }
+
+
+  .kami-blink {
+    animation: kami-blink 5.5s ease-in-out infinite;
+  }
+
+  .kami-peek {
+    animation: kami-peek 6s ease-in-out infinite;
+  }
+
+  .kami-breathe-slow {
+    animation: kami-breathe 4.6s ease-in-out infinite;
+  }
+
+  .kami-stretch {
+    animation: kami-stretch 520ms cubic-bezier(0.22, 1, 0.36, 1) 1;
+  }
+
+  .kami-hop {
+    animation: kami-hop 900ms cubic-bezier(0.22, 1, 0.36, 1) 1;
+  }
+
+  .kami-shake {
+    animation: kami-shake 600ms cubic-bezier(0.36, 0.07, 0.19, 0.97) 1;
+  }
+
+  .kami-sway {
+    animation: kami-sway 2.6s ease-in-out infinite;
+    transform-origin: 50% 85%;
   }
 
   .kami-breathe {
@@ -461,6 +491,83 @@
   }
   50% {
     transform: scale(1.06, 1.03);
+  }
+}
+
+
+@keyframes kami-blink {
+  0%,
+  92%,
+  100% {
+    opacity: 1;
+  }
+  94%,
+  96% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes kami-peek {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(4px);
+  }
+}
+
+@keyframes kami-stretch {
+  0% {
+    transform: scale(0.92, 0.92);
+  }
+  55% {
+    transform: scale(1.02, 1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes kami-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-6px);
+  }
+  55% {
+    transform: translateY(0);
+  }
+  75% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes kami-shake {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0);
+  }
+  20% {
+    transform: translateX(-2px) rotate(-2deg);
+  }
+  45% {
+    transform: translateX(2px) rotate(2deg);
+  }
+  70% {
+    transform: translateX(-1px) rotate(-1deg);
+  }
+}
+
+@keyframes kami-sway {
+  0%,
+  100% {
+    transform: rotate(-2.5deg);
+  }
+  50% {
+    transform: rotate(2.5deg);
   }
 }
 

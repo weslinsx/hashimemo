@@ -42,10 +42,12 @@ pub fn animate(
     generation: Arc<AtomicU64>,
     band: Option<(i32, i32, i32, i32)>,
     duration_ms: u64,
+    resizable_at_end: bool,
 ) {
     let token = generation.fetch_add(1, Ordering::SeqCst) + 1;
 
     thread::spawn(move || {
+        let _ = window.set_resizable(true);
         let steps = frames(duration_ms);
         for step in 1..=steps {
             if generation.load(Ordering::SeqCst) != token {
@@ -64,6 +66,7 @@ pub fn animate(
 
         let _ = window.set_position(PhysicalPosition::new(to.x, to.y));
         let _ = window.set_size(PhysicalSize::new(to.w, to.h));
+        let _ = window.set_resizable(resizable_at_end);
 
         if let Some((left, top, right, bottom)) = band {
             super::appbar::reserve(&window, left, top, right, bottom);

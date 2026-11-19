@@ -1,4 +1,4 @@
-use std::{
+﻿use std::{
     sync::{
         Mutex,
         atomic::{AtomicU64, Ordering},
@@ -14,7 +14,7 @@ use crate::settings::{self, SettingsState};
 
 const LABEL: &str = "bubble";
 const MARGIN: i32 = 14;
-const SIZE: u32 = 72;
+const SIZE: u32 = 84;
 const SNAP_DELAY_MS: u64 = 320;
 const MENU_WIDTH: u32 = 188;
 const MENU_HEIGHT: u32 = 158;
@@ -280,7 +280,7 @@ pub fn bubble_move(app: AppHandle, x: i32, y: i32) {
 #[tauri::command]
 pub fn bubble_drag_start(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
     if locked(&app) {
-        return Err("posição bloqueada".into());
+        return Err("posiÃ§Ã£o bloqueada".into());
     }
     window.start_dragging().map_err(|error| error.to_string())
 }
@@ -337,3 +337,4 @@ pub fn bubble_menu_close(app: AppHandle) {
         let _ = window.set_position(PhysicalPosition::new(x, y));
     }
 }
+

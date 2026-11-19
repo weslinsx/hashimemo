@@ -202,6 +202,7 @@ pub fn shrink_to(app: &AppHandle, x: i32, y: i32, w: u32, h: u32) {
         state.generation.clone(),
         None,
         motion_ms(app),
+        false,
     );
 }
 
@@ -285,6 +286,7 @@ fn apply(
             state.generation.clone(),
             band,
             duration,
+            !docked,
         );
     } else {
         win::place(window, target.x, target.y, target.w, target.h);

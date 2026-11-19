@@ -757,7 +757,10 @@ function SettingsPanel({
 
         <section className="border-t border-surface0/60 pt-4">
           <div className="mb-2 flex items-baseline justify-between">
-            <span className="text-subtext1">Notas protegidas</span>
+            <span className="flex items-center gap-1.5 text-subtext1">
+              <Kami size={16} pose="bloqueado" />
+              Notas protegidas
+            </span>
             <span className="text-xs text-overlay0">{hidden.length}</span>
           </div>
           {!pin.set ? (
@@ -1777,7 +1780,8 @@ export default function App() {
         <div className="h-[2px] shrink-0 rounded bg-mauve" />
       )}
       {ordered.length === 0 && (
-        <div className="mt-6 rounded-card border border-dashed border-surface1 px-4 py-6 text-center">
+        <div className="mt-4 flex flex-col items-center rounded-card border border-dashed border-surface1 px-4 py-6 text-center">
+          <Kami size={72} pose="idle" className="mb-2" />
           <p className="text-sm text-subtext0">
             {tab === "Todos" ? "Nenhuma nota ainda" : `Nenhuma nota em "${tab}"`}
           </p>
@@ -1803,7 +1807,7 @@ export default function App() {
         className="flex items-center gap-2 border-b border-surface0/70 px-3 py-2.5"
       >
         <div className="flex items-center gap-2">
-          <Kami size={30} />
+          <Kami size={30} pose="rosto" />
           <span className="text-sm font-semibold tracking-tight">HashiMemo</span>
         </div>
 
