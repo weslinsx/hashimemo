@@ -1,12 +1,26 @@
-//! Conteúdo da janela bolinha: Kami dormindo, arrasto nativo, snap e menu de contexto.
+//! Conteúdo da janela bolinha: Kami dormindo, arrasto com física, snap magnético e menu.
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Kami } from "./Kami";
 
+type Sample = { t: number; x: number; y: number };
+
 export function Bubble() {
-  const drag = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
+  const drag = useRef<{
+    sx: number;
+    sy: number;
+    moved: boolean;
+    ox: number;
+    oy: number;
+    ready: boolean;
+  } | null>(null);
+  const samples = useRef<Sample[]>([]);
+  const frame = useRef<number | null>(null);
+  const pending = useRef<[number, number] | null>(null);
   const [pressed, setPressed] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [landing, setLanding] = useState(false);
   const [waking, setWaking] = useState(false);
   const [menu, setMenu] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -15,38 +29,94 @@ export function Bubble() {
     const off = listen("bubble:show", () => {
       setWaking(false);
       setMenu(false);
+      setLanding(false);
+    });
+    const land = listen("bubble:land", () => {
+      setLanding(true);
+      window.setTimeout(() => setLanding(false), 380);
     });
     invoke<boolean>("bubble_locked").then(setLocked).catch(() => {});
     return () => {
       void off.then((unlisten) => unlisten());
+      void land.then((unlisten) => unlisten());
+      if (frame.current !== null) window.cancelAnimationFrame(frame.current);
     };
   }, []);
 
+  const flush = () => {
+    frame.current = null;
+    const target = pending.current;
+    if (target) void invoke("bubble_move", { x: target[0], y: target[1] }).catch(() => {});
+  };
+
+  const schedule = (x: number, y: number) => {
+    pending.current = [x, y];
+    if (frame.current === null) frame.current = window.requestAnimationFrame(flush);
+  };
+
   const down = (event: React.PointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0) return;
-    drag.current = { sx: event.screenX, sy: event.screenY, moved: false };
+    if (event.button !== 0 || locked) return;
+    const element = event.currentTarget;
+    try {
+      element.setPointerCapture(event.pointerId);
+    } catch {
+      /* captura indisponível */
+    }
+    drag.current = {
+      sx: event.screenX,
+      sy: event.screenY,
+      moved: false,
+      ox: 0,
+      oy: 0,
+      ready: false,
+    };
     setPressed(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
+    void invoke<[number, number] | null>("bubble_position")
+      .then((position) => {
+        if (!drag.current || !position) return;
+        drag.current.ox = position[0];
+        drag.current.oy = position[1];
+        drag.current.ready = true;
+        samples.current = [{ t: performance.now(), x: position[0], y: position[1] }];
+      })
+      .catch(() => {});
   };
 
   const move = (event: React.PointerEvent<HTMLButtonElement>) => {
     const state = drag.current;
-    if (!state || state.moved) return;
+    if (!state || !state.ready) return;
     const dx = event.screenX - state.sx;
     const dy = event.screenY - state.sy;
-    if (Math.abs(dx) + Math.abs(dy) > 6) {
-      state.moved = true;
-      void invoke("bubble_drag_start").catch(() => {});
-    }
+    if (!state.moved && Math.abs(dx) + Math.abs(dy) <= 4) return;
+    state.moved = true;
+    setDragging(true);
+    const x = Math.round(state.ox + dx);
+    const y = Math.round(state.oy + dy);
+    schedule(x, y);
+    samples.current.push({ t: performance.now(), x, y });
+    if (samples.current.length > 10) samples.current.shift();
+  };
+
+  const velocity = () => {
+    const list = samples.current;
+    if (list.length < 2) return [0, 0];
+    const last = list[list.length - 1];
+    const first = list[0];
+    const dt = Math.max(last.t - first.t, 16);
+    const vx = (last.x - first.x) / dt;
+    const vy = (last.y - first.y) / dt;
+    return [Math.max(-2.2, Math.min(2.2, vx)), Math.max(-2.2, Math.min(2.2, vy))];
   };
 
   const up = () => {
     const state = drag.current;
     drag.current = null;
     setPressed(false);
+    setDragging(false);
     if (!state) return;
     if (state.moved) {
-      void invoke("bubble_snap");
+      const [vx, vy] = velocity();
+      void invoke("bubble_throw", { vx, vy }).catch(() => void invoke("bubble_snap"));
     } else {
       setWaking(true);
       window.setTimeout(() => void invoke("bubble_restore"), 220);
@@ -121,10 +191,10 @@ export function Bubble() {
             event.preventDefault();
             openMenu();
           }}
-          title="Abrir HashiMemo (botão direito: opções)"
-          className={`soap-bubble relative flex h-[64px] w-[64px] items-center justify-center rounded-full transition-transform active:scale-95 ${
+          title={locked ? "Abrir HashiMemo (posição bloqueada)" : "Arraste para jogar; clique para abrir"}
+          className={`soap-bubble relative flex h-[64px] w-[64px] items-center justify-center rounded-full ${
             locked ? "cursor-pointer" : "cursor-grab hover:scale-[1.03]"
-          } ${pressed ? "scale-95" : ""}`}
+          } ${dragging ? "bubble-drag" : ""} ${landing ? "bubble-land" : ""} ${pressed ? "scale-95" : ""}`}
         >
           <Kami
             pose={waking ? "acordando" : "dormindo"}

@@ -22,6 +22,7 @@
   --color-maroon: #eba0ac;
   --color-red: #f38ba8;
   --color-pink: #f5c2e7;
+  --color-rosewater: #f5e0dc;
   --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
   --radius-card: 0.75rem;
 }
@@ -48,6 +49,7 @@
   --color-maroon: #e64553;
   --color-red: #d20f39;
   --color-pink: #ea76cb;
+  --color-rosewater: #dc8a78;
 }
 
 :root[data-theme="breeze"] {
@@ -72,6 +74,7 @@
   --color-maroon: #d97b8c;
   --color-red: #e2687a;
   --color-pink: #d998d3;
+  --color-rosewater: #e8b4a8;
 }
 
 @layer base {
@@ -85,6 +88,34 @@
     height: 100%;
   }
 
+  :root {
+    --dur-fast: 140ms;
+    --dur: 320ms;
+    --dur-slow: 520ms;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+    --ease-spring: cubic-bezier(0.34, 1.35, 0.64, 1);
+  }
+
+  :root[data-motion="fast"] {
+    --dur-fast: 100ms;
+    --dur: 200ms;
+    --dur-slow: 300ms;
+  }
+  :root[data-motion="smooth"] {
+    --dur-fast: 200ms;
+    --dur: 480ms;
+    --dur-slow: 700ms;
+    --ease-spring: cubic-bezier(0.3, 1.4, 0.6, 1);
+  }
+
+  :root[data-motion="slow"] {
+    --dur-fast: 260ms;
+    --dur: 640ms;
+    --dur-slow: 900ms;
+    --ease-spring: cubic-bezier(0.28, 1.5, 0.55, 1);
+  }
+
   body {
     margin: 0;
     background: transparent;
@@ -94,6 +125,10 @@
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
     user-select: none;
+  }
+
+  :root[data-bubble="1"] body {
+    background: transparent;
   }
 
   ::selection {
@@ -127,11 +162,11 @@
     background: color-mix(in srgb, var(--color-surface0) 38%, var(--color-crust));
     border: 1px solid color-mix(in srgb, var(--color-surface1) 55%, transparent);
     border-radius: var(--radius-card);
-    animation: card-in 220ms ease-out both;
+    animation: card-in var(--dur) var(--ease) both;
     transition:
-      border-color 160ms ease,
-      transform 160ms ease,
-      box-shadow 160ms ease;
+      border-color var(--dur-fast) var(--ease),
+      transform var(--dur-fast) var(--ease),
+      box-shadow var(--dur-fast) var(--ease);
   }
 
   .rail-card:hover {
@@ -140,21 +175,206 @@
     box-shadow: 0 8px 20px -12px rgb(0 0 0 / 0.8);
   }
 
+  .rail-card:active {
+    transform: scale(0.99);
+    transition-duration: var(--dur-fast);
+  }
+
   .level-enter {
-    animation: level-fade 180ms ease-out;
+    animation: level-fade var(--dur) var(--ease);
   }
 
   .list-enter {
-    animation: list-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: list-in var(--dur) var(--ease) both;
+  }
+
+  .list-left {
+    animation: list-left var(--dur) var(--ease) both;
+  }
+
+  .list-right {
+    animation: list-right var(--dur) var(--ease) both;
   }
 
   .editor-enter {
-    animation: editor-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: editor-in var(--dur) var(--ease) both;
   }
 
   .menu-enter {
-    animation: menu-in 140ms ease-out both;
+    animation: menu-in var(--dur-fast) var(--ease) both;
     transform-origin: top left;
+  }
+
+  .pop-enter {
+    animation: pop-in var(--dur) var(--ease-spring) both;
+  }
+
+  .drag-ghost {
+    transform: rotate(-2deg) scale(1.03);
+    transition: transform var(--dur-fast) var(--ease);
+  }
+
+  .tab-pill {
+    transition:
+      left var(--dur) var(--ease),
+      width var(--dur) var(--ease);
+  }
+
+  button {
+    transition:
+      transform var(--dur-fast) var(--ease),
+      background-color var(--dur-fast) var(--ease),
+      border-color var(--dur-fast) var(--ease),
+      color var(--dur-fast) var(--ease);
+  }
+
+  button:active {
+    transform: scale(0.96);
+  }
+
+  .soap-bubble {
+    overflow: visible;
+    touch-action: none;
+    transform-origin: 50% 70%;
+    transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    background:
+      radial-gradient(circle at 22% 18%, rgb(255 255 255 / 0.55) 0 4%, rgb(255 255 255 / 0.12) 9%, transparent 22%),
+      radial-gradient(circle at 78% 80%, rgb(137 180 250 / 0.42), transparent 52%),
+      radial-gradient(circle at 26% 80%, rgb(245 194 231 / 0.42), transparent 55%),
+      radial-gradient(circle at 50% 50%, rgb(148 226 213 / 0.22), rgb(30 30 46 / 0.5) 74%);
+    border: 1px solid rgb(255 255 255 / 0.55);
+    box-shadow:
+      inset 0 0 14px rgb(255 255 255 / 0.24),
+      inset -6px -8px 18px rgb(203 166 247 / 0.35),
+      0 10px 30px -10px rgb(0 0 0 / 0.85);
+    animation: soap-float 4.6s ease-in-out infinite;
+  }
+
+  .bubble-drag {
+    animation: bubble-stretch 900ms ease-in-out infinite;
+    cursor: grabbing;
+  }
+
+  .bubble-land {
+    animation: bubble-land 380ms cubic-bezier(0.22, 1.4, 0.36, 1) 1;
+  }
+
+  .soap-bubble::after {
+    content: "";
+    position: absolute;
+    inset: 8px;
+    border-radius: 999px;
+    background: radial-gradient(circle at 24% 20%, rgb(255 255 255 / 0.28), transparent 38%);
+    pointer-events: none;
+  }
+
+
+  .level-pop {
+    animation: level-pop var(--dur-slow) var(--ease) 1;
+  }
+
+  .app-root {
+    transition:
+      transform var(--dur-slow) var(--ease),
+      opacity var(--dur-slow) var(--ease);
+  }
+
+  .welcome-fade {
+    animation: welcome-fade 1700ms ease-in-out 1 both;
+  }
+
+  .welcome-pop {
+    animation: welcome-pop 900ms cubic-bezier(0.34, 1.4, 0.64, 1) 1 both;
+  }
+
+  .app-expanding {
+    animation: app-expand var(--dur-slow) var(--ease) 1;
+    transform-origin: 100% 18%;
+  }
+
+  .app-collapsing {
+    transform: scale(0.18);
+    opacity: 0;
+    transform-origin: 100% 18%;
+    transition:
+      transform var(--dur-slow) var(--ease-move),
+      opacity var(--dur) ease-in;
+  }
+
+  .app-hidden {
+    opacity: 0;
+  }
+
+  .kami-act {
+    animation: kami-act 2.4s ease-in-out infinite;
+  }
+
+  .kami-idea {
+    animation: kami-idea 3s ease-in-out infinite;
+  }
+
+  .kami-confused {
+    animation: kami-confused 3.4s ease-in-out infinite;
+  }
+
+  .kami-pulse {
+    animation: kami-pulse 2.2s ease-in-out infinite;
+  }
+
+  .kami-sad {
+    animation: kami-sad 4s ease-in-out infinite;
+  }
+
+  .kami-peek {
+    animation: kami-peek 6s ease-in-out infinite;
+  }
+
+  .kami-breathe-slow {
+    animation: kami-breathe 4.6s ease-in-out infinite;
+  }
+
+  .kami-stretch {
+    animation: kami-stretch 520ms cubic-bezier(0.22, 1, 0.36, 1) 1;
+  }
+
+  .kami-hop {
+    animation: kami-hop 900ms cubic-bezier(0.22, 1, 0.36, 1) 1;
+  }
+
+  .kami-shake {
+    animation: kami-shake 600ms cubic-bezier(0.36, 0.07, 0.19, 0.97) 1;
+  }
+
+  .padlock-snap {
+    animation: padlock-snap 700ms cubic-bezier(0.34, 1.35, 0.64, 1) 1 both;
+  }
+
+  .kami-sway {
+    animation: kami-sway 2.6s ease-in-out infinite;
+    transform-origin: 50% 85%;
+  }
+
+  .kami-breathe {
+    animation: kami-breathe 3.2s ease-in-out infinite;
+    transform-origin: 50% 85%;
+  }
+
+  .kami-z {
+    position: absolute;
+    right: 6px;
+    top: 6px;
+    color: var(--color-subtext1);
+    font-weight: 600;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .kami-z-1 {
+    animation: kami-z 2.8s ease-out infinite;
+  }
+
+  .kami-z-2 {
+    animation: kami-z 2.8s ease-out 1.4s infinite;
   }
 
   .hashi-editor {
@@ -300,12 +520,305 @@
   }
 }
 
+@keyframes list-left {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes list-right {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes kami-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06, 1.03);
+  }
+}
+
+
+@keyframes kami-blink {
+  0%,
+  92%,
+  100% {
+    opacity: 1;
+  }
+  94%,
+  96% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes kami-peek {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(4px);
+  }
+}
+
+@keyframes kami-stretch {
+  0% {
+    transform: scale(0.92, 0.92);
+  }
+  55% {
+    transform: scale(1.02, 1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes kami-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-6px);
+  }
+  55% {
+    transform: translateY(0);
+  }
+  75% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes kami-shake {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0);
+  }
+  20% {
+    transform: translateX(-2px) rotate(-2deg);
+  }
+  45% {
+    transform: translateX(2px) rotate(2deg);
+  }
+  70% {
+    transform: translateX(-1px) rotate(-1deg);
+  }
+}
+
+@keyframes padlock-snap {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scale(1.6) rotate(-14deg);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(1px) scale(0.95) rotate(2deg);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes kami-act {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  50% {
+    transform: translateY(-1.5px) rotate(-1deg);
+  }
+}
+
+@keyframes kami-idea {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes kami-confused {
+  0%,
+  100% {
+    transform: rotate(-1.5deg);
+  }
+  50% {
+    transform: rotate(1.5deg);
+  }
+}
+
+@keyframes kami-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes kami-sad {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(1.5px);
+  }
+}
+
+@keyframes kami-sway {
+  0%,
+  100% {
+    transform: rotate(-2.5deg);
+  }
+  50% {
+    transform: rotate(2.5deg);
+  }
+}
+
+@keyframes welcome-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes welcome-fade {
+  0% {
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  78% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes app-expand {
+  from {
+    opacity: 0;
+    transform: scale(0.18);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes level-pop {
+  from {
+    opacity: 0.9;
+    transform: scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes bubble-stretch {
+  0%,
+  100% {
+    transform: scale(1.06, 0.96) rotate(-2deg);
+  }
+  50% {
+    transform: scale(0.96, 1.06) rotate(2deg);
+  }
+}
+
+@keyframes bubble-land {
+  0% {
+    transform: scale(1.12, 0.88);
+  }
+  45% {
+    transform: scale(0.94, 1.07);
+  }
+  75% {
+    transform: scale(1.03, 0.98);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes soap-float {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.02);
+  }
+}
+
+@keyframes kami-z {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.8);
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(16px, -26px) scale(1.15);
+  }
+}
+
+:root[data-motion="off"] *,
+:root[data-motion="off"] *::before,
+:root[data-motion="off"] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rail-card,
   .level-enter,
   .list-enter,
+  .list-left,
+  .list-right,
   .editor-enter,
-  .menu-enter {
+  .menu-enter,
+  .pop-enter {
     animation: none;
   }
 
@@ -324,88 +837,5 @@
   to {
     opacity: 1;
     transform: none;
-  }
-}
-
-@layer components {
-  .app-collapsing {
-    transform: scale(0.18);
-    opacity: 0;
-    transform-origin: 100% 18%;
-    transition:
-      transform 520ms cubic-bezier(0.65, 0, 0.35, 1),
-      opacity 320ms ease-in;
-  }
-
-  .soap-bubble {
-    overflow: visible;
-    background:
-      radial-gradient(circle at 22% 18%, rgb(255 255 255 / 0.55) 0 4%, rgb(255 255 255 / 0.12) 9%, transparent 22%),
-      radial-gradient(circle at 78% 80%, rgb(137 180 250 / 0.42), transparent 52%),
-      radial-gradient(circle at 26% 80%, rgb(245 194 231 / 0.42), transparent 55%),
-      radial-gradient(circle at 50% 50%, rgb(148 226 213 / 0.22), rgb(30 30 46 / 0.5) 74%);
-    border: 1px solid rgb(255 255 255 / 0.55);
-    box-shadow:
-      inset 0 0 14px rgb(255 255 255 / 0.24),
-      inset -6px -8px 18px rgb(203 166 247 / 0.35),
-      0 10px 30px -10px rgb(0 0 0 / 0.85);
-    animation: soap-float 4.6s ease-in-out infinite;
-  }
-
-  .kami-breathe {
-    animation: kami-breathe 3.2s ease-in-out infinite;
-    transform-origin: 50% 85%;
-  }
-
-  .kami-z {
-    position: absolute;
-    right: 10px;
-    top: 12px;
-    color: var(--color-subtext1);
-    font-weight: 600;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .kami-z-1 {
-    animation: kami-z 2.8s ease-out infinite;
-  }
-
-  .kami-z-2 {
-    animation: kami-z 2.8s ease-out 1.4s infinite;
-  }
-}
-
-@keyframes soap-float {
-  0%,
-  100% {
-    transform: translateY(0) scale(1);
-  }
-  50% {
-    transform: translateY(-4px) scale(1.02);
-  }
-}
-
-@keyframes kami-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.06, 1.03);
-  }
-}
-
-@keyframes kami-z {
-  0% {
-    opacity: 0;
-    transform: translate(0, 0) scale(0.8);
-  }
-  25% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translate(16px, -26px) scale(1.15);
   }
 }

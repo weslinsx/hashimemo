@@ -1,3 +1,4 @@
+//! Chamadas Win32 isoladas: rect/place, remoção de frame nativo, cantos e opacidade.
 use tauri::WebviewWindow;
 
 #[cfg(windows)]

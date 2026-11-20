@@ -1,3 +1,6 @@
+//! Máquina de estados da janela: Docked (rail), Focus (70%) e Max (work area).
+//! `apply` é o único ponto que move a janela; AppBar/geometria saem daqui.
+//! `generation` invalida animações/settle antigos a cada mudança de nível.
 mod anim;
 mod appbar;
 #[cfg(target_os = "linux")]
@@ -14,8 +17,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow,
-    WindowEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, WindowEvent,
 };
 
 use anim::Rect;
@@ -48,6 +50,8 @@ pub struct AppState {
 #[derive(Clone, Serialize, Deserialize)]
 struct Inner {
     level: Level,
+    #[serde(default)]
+    previous_level: Level,
     docked: bool,
     width: u32,
     floating: Option<(i32, i32)>,
@@ -59,6 +63,7 @@ impl Default for Inner {
     fn default() -> Self {
         Self {
             level: Level::Docked,
+            previous_level: Level::Docked,
             docked: true,
             width: RAIL_WIDTH,
             floating: None,
@@ -187,6 +192,47 @@ fn level_rect(level: Level, work: Rect, right: i32, width: u32) -> Rect {
     }
 }
 
+pub fn set_monitor(app: &AppHandle, name: Option<String>) {
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut inner) = state.inner.lock() {
+            inner.monitor = name;
+        }
+    }
+}
+
+pub fn reset_opacity(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
+        win::set_opacity(&window, 255);
+    }
+}
+
+fn motion_ms(app: &AppHandle) -> u64 {
+    app.try_state::<crate::settings::SettingsState>()
+        .map(|state| state.snapshot().motion)
+        .map(|motion| match motion.as_str() {
+            "off" => 0,
+            "fast" => 240,
+            "smooth" => 600,
+            "slow" => 800,
+            _ => 420,
+        })
+        .unwrap_or(320)
+}
+
+pub fn dbg(msg: &str) {
+    use std::io::Write;
+    if std::env::var("HASHIMEMO_TEST").is_err() {
+        return;
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(std::env::temp_dir().join("hashimemo-debug.log"))
+    {
+        let _ = writeln!(file, "{}", msg);
+    }
+}
+
 fn apply(
     app: &AppHandle,
     window: &WebviewWindow,
@@ -201,10 +247,21 @@ fn apply(
         }
         Err(_) => (true, RAIL_WIDTH, None, None),
     };
-    let level = if docked { level } else { Level::Docked };
+    // Invalida qualquer settle pendente: um settle antigo não pode reposicionar a janela depois
+    // que o nível mudou (era a causa do rail "puxar" a janela de volta ao abrir Foco/Max).
+    state.generation.fetch_add(1, Ordering::SeqCst);
     let rail = docked && level == Level::Docked;
+    let duration = motion_ms(app);
+    dbg(&format!(
+        "apply {level:?} docked={docked} rail={rail} work={}..{}",
+        work_area(window, monitor.as_deref()).x,
+        work_area(window, monitor.as_deref()).x + work_area(window, monitor.as_deref()).w as i32
+    ));
 
     if !rail {
+        dbg("apply: release da banda");
+        // `release` já faz ABM_REMOVE e restaura a work area; forçar SPI_SETWORKAREA aqui
+        // podia reabrir a faixa de 360 px (o bloco preto ao minimizar saindo do Foco).
         appbar::release(window);
     }
 
@@ -214,12 +271,18 @@ fn apply(
     let target = if docked {
         level_rect(level, work, right, width)
     } else {
-        let current = anim::current(window);
-        Rect {
-            x: floating.map(|(x, _)| x).unwrap_or(current.x),
-            y: floating.map(|(_, y)| y).unwrap_or(current.y),
-            w: width,
-            h: current.h.min(work.h),
+        match level {
+            Level::Docked => {
+                let current = anim::current(window);
+                Rect {
+                    x: floating.map(|(x, _)| x).unwrap_or(current.x),
+                    y: floating.map(|(_, y)| y).unwrap_or(current.y),
+                    w: width,
+                    h: current.h.min(work.h),
+                }
+            }
+            Level::Focus => centered(work, 0.7),
+            Level::Max => work,
         }
     };
 
@@ -230,9 +293,9 @@ fn apply(
         work.y + work.h as i32,
     ));
 
-    let _ = window.set_always_on_top(docked);
-    let _ = window.set_skip_taskbar(true);
-    let _ = window.set_resizable(!docked);
+    let _ = window.set_always_on_top(rail);
+    let _ = window.set_skip_taskbar(docked && level == Level::Docked);
+    let _ = window.set_resizable(!rail);
     win::remove_native_frame(window);
     win::set_round(window, true);
 
@@ -245,14 +308,14 @@ fn apply(
                 hypr::release();
             }
         }
-    } else if animated {
-        anim::animate(
-            window.clone(),
-            anim::current(window),
-            target,
-            state.generation.clone(),
-            band,
-        );
+    } else if animated && duration > 0 {
+        let _ = app.emit_to(WINDOW_LABEL, "window:level", ());
+        dissolve_place(window, target);
+        if let Some((left, top, right, bottom)) = band {
+            dbg("apply: reserve");
+            appbar::reserve(window, left, top, right, bottom);
+            settle(window.clone(), target, state.generation.clone());
+        }
     } else {
         win::place(window, target.x, target.y, target.w, target.h);
         if let Some((left, top, right, bottom)) = band {
@@ -273,7 +336,64 @@ fn apply(
     }
 }
 
+
+
+fn dissolve_place(window: &WebviewWindow, target: Rect) {
+    // Troca de forma sem animar tamanho de janela (que engasga no WebView):
+    // desbota -> aplica a geometria final -> volta a opacidade. Parece um morph suave.
+    for step in 1..=4 {
+        win::set_opacity(window, 255 - (255 * step / 4) as u8);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    win::place(window, target.x, target.y, target.w, target.h);
+    for step in 0..=6 {
+        win::set_opacity(window, (255 * step / 6) as u8);
+        std::thread::sleep(std::time::Duration::from_millis(28));
+    }
+    win::set_opacity(window, 255);
+}
+
+pub fn trace_loop(app: AppHandle) {
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
+                continue;
+            };
+            let Some(state) = app.try_state::<AppState>() else {
+                continue;
+            };
+            let level = state.inner.lock().map(|inner| inner.level).unwrap_or_default();
+            let visible = window.is_visible().unwrap_or(false);
+            let work = work_area(&window, None);
+            let ball = app
+                .get_webview_window("bubble")
+                .map(|b| {
+                    let pos = b.outer_position().map(|p| (p.x, p.y)).unwrap_or((0, 0));
+                    format!("{},{},vis={}", pos.0, pos.1, b.is_visible().unwrap_or(false))
+                })
+                .unwrap_or_default();
+            dbg(&format!(
+                "trace {level:?} main={visible} work={}..{} bubble={ball}",
+                work.x,
+                work.x + work.w as i32
+            ));
+        }
+    });
+}
+
+pub fn set_level_by_app(app: &AppHandle, level: Level) {
+    let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
+        return;
+    };
+    let state = app.state::<AppState>();
+    apply(app, &window, &state, level, true);
+    let _ = window.set_focus();
+}
+
 fn settle(window: WebviewWindow, target: Rect, generation: Arc<AtomicU64>) {
+    // Reaplica a geometria por ~2s apenas para o rail, porque o shell pode ajustar a janela
+    // depois da reserva de AppBar. Qualquer novo `apply` incrementa a geração e encerra este loop.
     let token = generation.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::spawn(move || {
         for _ in 0..22 {
@@ -343,11 +463,18 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         let shown = window.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(900));
+            win::set_opacity(&shown, 0);
             let _ = shown.show();
+            for step in 1..=8 {
+                win::set_opacity(&shown, (255 * step / 8) as u8);
+                std::thread::sleep(std::time::Duration::from_millis(32));
+            }
+            win::set_opacity(&shown, 255);
         });
     }
 
     let handle = app.clone();
+
     window.on_window_event(move |event| match event {
         WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
@@ -375,7 +502,21 @@ pub fn release_area(window: &WebviewWindow) {
     appbar::release(window);
 }
 
-pub fn show_from_bubble(app: &AppHandle, from: Option<(i32, i32, u32, u32)>) {
+pub fn remember_level(app: &AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut inner) = state.inner.lock() {
+            inner.previous_level = inner.level;
+        }
+    }
+}
+
+pub fn previous_level(app: &AppHandle) -> Level {
+    app.try_state::<AppState>()
+        .and_then(|state| state.inner.lock().ok().map(|inner| inner.previous_level))
+        .unwrap_or(Level::Docked)
+}
+
+pub fn show_level(app: &AppHandle, level: Level, from: Option<(i32, i32, u32, u32)>) {
     let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
         return;
     };
@@ -384,12 +525,13 @@ pub fn show_from_bubble(app: &AppHandle, from: Option<(i32, i32, u32, u32)>) {
         let _ = window.set_size(PhysicalSize::new(w.max(200), h.max(120)));
         let _ = window.set_position(PhysicalPosition::new(x, y));
     }
+    let _ = app.emit_to(WINDOW_LABEL, "app:expand", ());
     let _ = window.show();
     let state = app.state::<AppState>();
     if let Ok(mut inner) = state.inner.lock() {
         inner.docked = true;
     }
-    apply(app, &window, &state, Level::Docked, true);
+    apply(app, &window, &state, level, true);
     let _ = window.set_focus();
 }
 
@@ -404,6 +546,47 @@ pub fn reapply(app: &AppHandle) {
         .map(|inner| inner.level)
         .unwrap_or(Level::Docked);
     apply(app, &window, &state, level, false);
+}
+
+#[tauri::command]
+pub fn toggle_focus_height(
+    _app: AppHandle,
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> WindowState {
+    let Some((x, _, w, h)) = win::rect(&window) else {
+        return snapshot(&window, &state);
+    };
+    let monitor = state.inner.lock().ok().and_then(|inner| inner.monitor.clone());
+    let work = work_area(&window, monitor.as_deref());
+    let full = h > 0 && (h as f32) > work.h as f32 * 0.85;
+    let target_h = if full {
+        (work.h as f32 * 0.7) as u32
+    } else {
+        work.h
+    };
+    let y = work.y + ((work.h as i32 - target_h as i32) / 2).max(0);
+    win::place(&window, x, y, w.max(1) as u32, target_h.max(120));
+    snapshot(&window, &state)
+}
+
+pub fn reset_windows(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
+        return;
+    };
+    let state = app.state::<AppState>();
+    if let Ok(mut inner) = state.inner.lock() {
+        inner.docked = true;
+        inner.floating = None;
+        inner.monitor = None;
+    }
+    win::set_opacity(&window, 255);
+    let _ = window.show();
+    apply(app, &window, &state, Level::Docked, true);
+    if let Some(ball) = app.get_webview_window("bubble") {
+        let _ = ball.hide();
+    }
+    let _ = window.set_focus();
 }
 
 fn snapshot(window: &WebviewWindow, state: &AppState) -> WindowState {
@@ -453,21 +636,23 @@ pub fn cycle_monitor(
         .unwrap_or(0);
     let next = &list[(index + 1) % list.len()];
     let target = next.name().cloned();
+    let monitor_area = monitor_rects(&window, target.as_deref()).map(|(_, work)| work);
     if let Ok(mut inner) = state.inner.lock() {
         inner.monitor = target.clone();
-        if !inner.docked {
-            if let Some((_, work)) = monitor_rects(&window, target.as_deref()) {
-                let height = win::rect(&window)
-                    .map(|(_, _, _, h)| h.max(1) as u32)
-                    .unwrap_or(work.h);
-                inner.floating = Some((
-                    work.x + ((work.w as i32 - inner.width as i32) / 2).max(0),
-                    work.y + ((work.h as i32 - height as i32) / 2).max(0),
-                ));
-            }
+        if inner.docked {
+            inner.floating = None;
+        } else if let Some(work) = monitor_area {
+            let height = win::rect(&window)
+                .map(|(_, _, _, h)| h.max(1) as u32)
+                .unwrap_or(work.h)
+                .min(work.h);
+            inner.floating = Some((
+                work.x + ((work.w as i32 - inner.width as i32) / 2).max(0),
+                work.y + ((work.h as i32 - height as i32) / 2).max(0),
+            ));
         }
     }
-    apply(&app, &window, &state, level, false)
+    apply(&app, &window, &state, level, true)
 }
 
 #[tauri::command]
@@ -488,7 +673,26 @@ pub fn toggle_dock(
 ) -> WindowState {
     if let Ok(mut inner) = state.inner.lock() {
         inner.docked = !inner.docked;
+        if !inner.docked {
+            if let Some((x, y)) = inner.floating {
+                let inside = monitor_rects(&window, inner.monitor.as_deref())
+                    .map(|(full, _)| {
+                        x >= full.x
+                            && y >= full.y
+                            && x + inner.width as i32 <= full.x + full.w as i32
+                            && y + 240 <= full.y + full.h as i32
+                    })
+                    .unwrap_or(false);
+                if !inside {
+                    inner.floating = None;
+                }
+            }
+        }
     }
-    apply(&app, &window, &state, Level::Docked, true)
+    apply(&app, &window, &state, Level::Docked, true);
+    if !state.inner.lock().map(|inner| inner.docked).unwrap_or(true) {
+        let _ = window.set_focus();
+    }
+    snapshot(&window, &state)
 }
 

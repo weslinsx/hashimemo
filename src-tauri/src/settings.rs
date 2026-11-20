@@ -1,3 +1,4 @@
+//! Preferências persistidas em settings.json (tema, motion, autosave, cofre, bolinha).
 use std::{
     path::PathBuf,
     sync::Mutex,
@@ -19,14 +20,32 @@ pub struct Settings {
     pub theme: String,
     #[serde(default)]
     pub notes_root: Option<String>,
+    #[serde(default = "default_motion")]
+    pub motion: String,
+    #[serde(default = "default_autosave")]
+    pub autosave: bool,
+    #[serde(default = "default_minimize")]
+    pub minimize_mode: String,
+    #[serde(default)]
+    pub pin_salt: Option<String>,
+    #[serde(default)]
+    pub pin_check: Option<String>,
+    #[serde(default)]
+    pub pin_fails: u32,
+    #[serde(default)]
+    pub pin_last: Option<String>,
     #[serde(default)]
     pub bubble_x: Option<i32>,
     #[serde(default)]
     pub bubble_y: Option<i32>,
     #[serde(default)]
     pub bubble_locked: bool,
-    #[serde(default = "default_minimize")]
-    pub minimize_mode: String,
+    #[serde(default)]
+    pub bubble_custom: bool,
+}
+
+fn default_autosave() -> bool {
+    true
 }
 
 fn default_minimize() -> String {
@@ -37,6 +56,10 @@ fn default_theme() -> String {
     "mocha".into()
 }
 
+fn default_motion() -> String {
+    "fluid".into()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -44,21 +67,35 @@ impl Default for Settings {
             autostart: true,
             theme: default_theme(),
             notes_root: None,
+            motion: default_motion(),
+            autosave: true,
+            minimize_mode: default_minimize(),
+            pin_salt: None,
+            pin_check: None,
+            pin_fails: 0,
+            pin_last: None,
             bubble_x: None,
             bubble_y: None,
             bubble_locked: false,
-            minimize_mode: default_minimize(),
+            bubble_custom: false,
         }
     }
 }
 
 const THEMES: [&str; 3] = ["mocha", "latte", "breeze"];
+const MOTIONS: [&str; 5] = ["off", "fast", "fluid", "smooth", "slow"];
 
 impl Settings {
     fn normalized(mut self) -> Self {
         self.font_scale = self.font_scale.clamp(MIN_SCALE, MAX_SCALE);
         if !THEMES.contains(&self.theme.as_str()) {
             self.theme = default_theme();
+        }
+        if !MOTIONS.contains(&self.motion.as_str()) {
+            self.motion = default_motion();
+        }
+        if self.minimize_mode != "hide" {
+            self.minimize_mode = default_minimize();
         }
         self.notes_root = self
             .notes_root
@@ -79,17 +116,17 @@ impl SettingsState {
         }
     }
 
-    pub fn update(&self, settings: Settings) {
-        if let Ok(mut inner) = self.inner.lock() {
-            *inner = settings;
-        }
-    }
-
     pub fn snapshot(&self) -> Settings {
         self.inner
             .lock()
             .map(|settings| settings.clone())
             .unwrap_or_default()
+    }
+
+    pub fn update(&self, settings: Settings) {
+        if let Ok(mut inner) = self.inner.lock() {
+            *inner = settings;
+        }
     }
 }
 
@@ -141,9 +178,14 @@ pub fn update_settings(
     let settings = settings.normalized();
     let previous = state.snapshot();
     let mut settings = settings;
+    settings.pin_salt = previous.pin_salt.clone();
+    settings.pin_check = previous.pin_check.clone();
+    settings.pin_fails = previous.pin_fails;
+    settings.pin_last = previous.pin_last.clone();
     settings.bubble_x = previous.bubble_x;
     settings.bubble_y = previous.bubble_y;
     settings.bubble_locked = previous.bubble_locked;
+    settings.bubble_custom = previous.bubble_custom;
     if let Ok(mut inner) = state.inner.lock() {
         *inner = settings.clone();
     }

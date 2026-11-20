@@ -1,7 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+//! App inteiro em um arquivo: header, abas de grupo, lista, editor, configs, modais e PIN.
+//! Estado: `win` (nível), `notes` (lista), `draft` (nota aberta), `settings`, `pin`, `flash`.
+//! Fluxo de nota: abrir -> applyDraft (autosave) ou salvar manual; protegidas usam set_protected.
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { Md } from "./md";
+import { Kami } from "./Kami";
 import { RichEditor, type Capture } from "./RichEditor";
 
 type Level = "Docked" | "Focus" | "Max";
@@ -18,6 +33,9 @@ type Settings = {
   autostart: boolean;
   theme: string;
   notes_root: string | null;
+  motion: string;
+  autosave: boolean;
+  minimize_mode: string;
 };
 
 type Note = {
@@ -29,11 +47,14 @@ type Note = {
   order: number;
   pinned: boolean;
   hidden: boolean;
+  protected: boolean;
   remind_at: string;
   created: string;
   updated: string;
   mtime: number;
 };
+
+type PinStatus = { set: boolean; unlocked: boolean; fails: number };
 
 const THEMES = [
   { id: "mocha", label: "Catppuccin Mocha" },
@@ -41,7 +62,36 @@ const THEMES = [
   { id: "breeze", label: "Breeze Dark" },
 ];
 
-const COLORS = ["mauve", "blue", "green", "peach", "red", "yellow", "teal", "pink"];
+const MOTION_MS: Record<string, number> = {
+  off: 0,
+  fast: 240,
+  fluid: 420,
+  smooth: 600,
+  slow: 800,
+};
+
+const MOTIONS = [
+  { id: "off", label: "Desligado" },
+  { id: "fast", label: "Ágil" },
+  { id: "fluid", label: "Fluido" },
+  { id: "smooth", label: "Sereno" },
+  { id: "slow", label: "Cadenciado" },
+];
+
+const COLORS = [
+  "mauve",
+  "blue",
+  "green",
+  "peach",
+  "red",
+  "yellow",
+  "teal",
+  "pink",
+  "lavender",
+  "sapphire",
+  "maroon",
+  "rosewater",
+];
 
 const ACCENT: Record<string, string> = {
   mauve: "var(--color-mauve)",
@@ -52,6 +102,10 @@ const ACCENT: Record<string, string> = {
   yellow: "var(--color-yellow)",
   teal: "var(--color-teal)",
   pink: "var(--color-pink)",
+  lavender: "var(--color-lavender)",
+  sapphire: "var(--color-sapphire)",
+  maroon: "var(--color-maroon)",
+  rosewater: "var(--color-rosewater)",
 };
 
 function toLocalInput(iso: string): string {
@@ -91,27 +145,6 @@ function relative(iso: string): string {
   if (hours < 24) return `há ${hours} h`;
   const days = Math.round(hours / 24);
   return days === 1 ? "ontem" : `há ${days} d`;
-}
-
-function Mark({ size = 18 }: { size?: number }) {
-  return (
-    <svg viewBox="0 0 32 32" width={size} height={size} aria-hidden="true">
-      <defs>
-        <linearGradient id="mark" x1="4" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="var(--color-mauve)" />
-          <stop offset="1" stopColor="var(--color-blue)" />
-        </linearGradient>
-      </defs>
-      <rect x="1.5" y="1.5" width="29" height="29" rx="8.5" fill="url(#mark)" />
-      <g fill="var(--color-crust)">
-        <rect x="6.5" y="9" width="9" height="1.9" rx="0.95" />
-        <rect x="6.5" y="13.6" width="11.5" height="1.9" rx="0.95" />
-        <rect x="6.5" y="18.2" width="7" height="1.9" rx="0.95" />
-        <rect x="6.5" y="22.8" width="4.5" height="1.9" rx="0.95" />
-      </g>
-      <rect x="21" y="9" width="3.4" height="15.8" rx="1.7" fill="var(--color-crust)" opacity="0.8" />
-    </svg>
-  );
 }
 
 function IconDock({ active }: { active: boolean }) {
@@ -154,18 +187,25 @@ function NoteCard({
   note,
   onOpen,
   onContext,
+  onPointerDown,
 }: {
   note: Note;
   onOpen: () => void;
   onContext: (event: MouseEvent) => void;
+  onPointerDown?: (event: ReactPointerEvent) => void;
 }) {
   const accent = ACCENT[note.color] ?? "var(--color-mauve)";
-  const preview = note.body.replace(/^#+ .*\n/, "").trim();
+  const preview = note.body
+    .replace(/^#+ .*\n/, "")
+    .replace(/^\[Image \d+\]\s*$/gm, "")
+    .trim();
   return (
     <article
+      data-note={note.id}
+      onPointerDown={onPointerDown}
       onClick={onOpen}
       onContextMenu={onContext}
-      className="rail-card group relative cursor-pointer overflow-hidden px-3 py-2.5"
+      className="rail-card group relative cursor-pointer touch-none overflow-hidden px-3 py-2.5"
     >
       <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: accent }} />
       <header className="mb-1 flex items-center gap-2 pl-1.5">
@@ -204,7 +244,7 @@ function NoteCard({
             {clock(note.remind_at)}
           </span>
         )}
-        <span className="ml-auto tabular-nums">{relative(note.updated)}</span>
+        <span className="ml-auto tabular-nums">{relative(note.created)}</span>
       </footer>
     </article>
   );
@@ -276,7 +316,7 @@ function NoteMenu({
           }}
           className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-subtext1 transition hover:bg-surface0 hover:text-text"
         >
-          {note.hidden ? "Mostrar nota" : "Ocultar nota"}
+          {note.hidden ? "Mostrar nota" : "Proteger nota"}
         </button>
 
         <div className="my-1 border-t border-surface0/70" />
@@ -312,6 +352,75 @@ function NoteMenu({
   );
 }
 
+function GroupPicker({
+  value,
+  groups,
+  onChange,
+}: {
+  value: string;
+  groups: string[];
+  onChange: (name: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative shrink-0">
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setOpen(true)}
+        placeholder="grupo"
+        className="w-32 rounded-md border border-surface0/60 bg-mantle/60 py-1 pr-6 pl-2 text-xs outline-none transition focus:border-mauve/70"
+      />
+      <button
+        type="button"
+        title="Escolher grupo"
+        onClick={() => setOpen((current) => !current)}
+        className="absolute top-1/2 right-1 -translate-y-1/2 rounded px-1 text-[0.6rem] text-overlay0 transition hover:text-text"
+      >
+        ▾
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 z-30 mt-1 max-h-44 w-40 overflow-y-auto rounded-md border border-surface1/70 bg-mantle py-1 text-xs shadow-[0_18px_40px_-18px_rgb(0_0_0/0.9)] menu-enter">
+            {groups
+              .filter((name) => name !== value)
+              .map((name) => (
+                <button
+                  key={name}
+                  onClick={() => {
+                    onChange(name);
+                    setOpen(false);
+                  }}
+                  className="block w-full truncate px-2.5 py-1 text-left text-subtext1 transition hover:bg-surface0 hover:text-text"
+                >
+                  {name}
+                </button>
+              ))}
+            {groups.length === 0 && <p className="px-2.5 py-1 text-overlay0">nenhum grupo ainda</p>}
+            {value.trim() && !groups.includes(value.trim()) && (
+              <p className="border-t border-surface0/70 px-2.5 py-1 text-[0.65rem] text-overlay0">
+                Enter cria “{value.trim()}”
+              </p>
+            )}
+            {value && (
+              <button
+                onClick={() => {
+                  onChange("");
+                  setOpen(false);
+                }}
+                className="w-full border-t border-surface0/70 px-2.5 py-1 text-left text-overlay0 transition hover:bg-surface0 hover:text-red"
+              >
+                sem grupo
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Editor({
   note,
   groups,
@@ -319,7 +428,10 @@ function Editor({
   onClose,
   onDelete,
   onCapture,
+  onError,
+  onSave,
   indent = false,
+  inline = false,
 }: {
   note: Note;
   groups: string[];
@@ -327,16 +439,23 @@ function Editor({
   onClose: () => void;
   onDelete: () => void;
   onCapture: () => Promise<Capture | null>;
+  onError?: (message: string) => void;
+  onSave: () => void;
   indent?: boolean;
+  inline?: boolean;
 }) {
   const [remindOpen, setRemindOpen] = useState(false);
   const [raw, setRaw] = useState(false);
 
   return (
     <div
-      className={`absolute inset-y-0 right-0 z-20 flex flex-col bg-base editor-enter ${
-        indent ? "left-[360px] border-l border-surface0/70" : "left-0"
-      }`}
+      className={
+        inline
+          ? "relative z-10 flex min-h-0 w-full flex-1 flex-col bg-base level-enter"
+          : `absolute inset-y-0 right-0 z-20 flex flex-col bg-base editor-enter ${
+              indent ? "left-[360px] border-l border-surface0/70" : "left-0"
+            }`
+      }
     >
       <div className="flex items-center gap-2 border-b border-surface0/70 px-3 py-2">
         <button
@@ -344,6 +463,13 @@ function Editor({
           className="rounded bg-surface0/70 px-2 py-1 text-xs text-subtext1 transition hover:bg-surface1"
         >
           ← voltar
+        </button>
+        <button
+          onClick={onSave}
+          title="Salvar agora"
+          className="rounded bg-mauve/20 px-2 py-1 text-xs text-mauve transition hover:bg-mauve/30"
+        >
+          salvar
         </button>
         <span className="ml-auto text-[0.65rem] text-overlay0">{relative(note.updated)}</span>
         <button
@@ -356,17 +482,6 @@ function Editor({
           <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
             <path d="M6 2h4l-.5 4 2 2v1.5H4.5V8l2-2z" />
             <path d="M8 9.5V14" />
-          </svg>
-        </button>
-        <button
-          onClick={() => setRemindOpen((value) => !value)}
-          title="Lembrete"
-          className={`rounded p-1.5 transition hover:bg-surface0 ${
-            note.remind_at ? "text-yellow" : "text-overlay0"
-          }`}
-        >
-          <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
-            <path d="M4 7a4 4 0 0 1 8 0c0 3 1.2 4 1.2 4H2.8S4 10 4 7zM6.5 13a1.5 1.5 0 0 0 3 0" />
           </svg>
         </button>
         <button
@@ -388,31 +503,24 @@ function Editor({
           className="mx-3 rounded-md border border-surface0/60 bg-mantle/60 px-2.5 py-2 text-sm font-semibold outline-none transition focus:border-mauve/70"
         />
         <div className="mx-3 flex items-center gap-2">
-          <input
+          <GroupPicker
             value={note.group}
-            list="hashimemo-groups"
-            onChange={(event) => onChange({ ...note, group: event.target.value })}
-            placeholder="grupo"
-            className="w-32 rounded-md border border-surface0/60 bg-mantle/60 px-2 py-1 text-xs outline-none transition focus:border-mauve/70"
+            groups={groups}
+            onChange={(group) => onChange({ ...note, group })}
           />
-          <datalist id="hashimemo-groups">
-            {groups.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-          <div className="ml-auto flex items-center gap-1">
-            {COLORS.map((color) => (
-              <button
-                key={color}
-                onClick={() => onChange({ ...note, color })}
-                title={color}
-                className={`h-4 w-4 rounded-full transition ${
-                  note.color === color ? "ring-2 ring-text/70 ring-offset-1 ring-offset-base" : "opacity-60 hover:opacity-100"
-                }`}
-                style={{ background: ACCENT[color] }}
-              />
-            ))}
-          </div>
+        </div>
+        <div className="mx-3 flex flex-wrap items-center gap-1.5">
+          {COLORS.map((color) => (
+            <button
+              key={color}
+              onClick={() => onChange({ ...note, color })}
+              title={color}
+              className={`h-3.5 w-3.5 rounded-full transition ${
+                note.color === color ? "ring-2 ring-text/70 ring-offset-1 ring-offset-base" : "opacity-60 hover:opacity-100"
+              }`}
+              style={{ background: ACCENT[color] }}
+            />
+          ))}
         </div>
 
         {remindOpen && (
@@ -451,6 +559,9 @@ function Editor({
             value={note.body}
             onChange={(body) => onChange({ ...note, body })}
             onCapture={onCapture}
+            onError={onError}
+            onRemind={() => setRemindOpen((value) => !value)}
+            reminding={Boolean(note.remind_at)}
           />
         )}
         <div className="mx-3 flex items-center gap-1 text-[0.6rem] text-overlay0">
@@ -469,160 +580,485 @@ function Editor({
   );
 }
 
-const OPENCODE_HELP = `Skill \`hashimemo\` em \`~/.config/opencode/skills/hashimemo/SKILL.md\` e regra no \`AGENTS.md\` global: toda sessão sabe que as notas ficam neste rail e como ler/gravar.
+const OPENCODE_HELP = `Cole este texto na IA que você usa: ela instala o HashiMemo e a skill de notas no ambiente dela.
 
-Comandos de sessão: \`/nota <texto>\` grava no grupo OpenCode; \`/notas [termo]\` lista ou busca.
+---
 
-CLI no PATH: \`hashimemo list|search|read|edit|context|new\`. Grupo OpenCode = aba no rail.`;
+Instale e configure o HashiMemo neste ambiente.
+
+1. Descubra os caminhos padrão do sistema: onde ficam aplicativos instalados, onde ficam as skills/instruções do próprio agente e qual é a pasta de documentos do usuário.
+2. Instale o HashiMemo (aplicativo desktop, Windows ou Linux) e garanta que o comando \`hashimemo\` fique disponível no PATH.
+3. Crie a pasta de notas do app: um arquivo .md por nota, com frontmatter YAML contendo title, group, color, pinned, hidden, remind_at e protected.
+4. Registre a skill de notas nas suas instruções, com estas regras:
+   - listar, buscar, ler, criar e editar notas pela CLI (\`list\`, \`search\`, \`read\`, \`new\`, \`edit\`, \`context\`, \`path\`);
+   - escrever em Markdown curto, sem conversa;
+   - guardar em um grupo chamado IA tudo que for para o usuário ler;
+   - nunca copiar senhas ou segredos para o chat;
+   - notas com protected: true estão cifradas e não podem ser lidas.
+5. Confirme os caminhos descobertos, crie uma nota de teste no grupo IA e mostre o conteúdo lido de volta.`;
+
+function copyText(value: string) {
+  void navigator.clipboard.writeText(value).catch(() => {});
+}
+
+function Padlock({ open, size = 14 }: { open: boolean; size?: number }) {
+  return (
+    <svg viewBox="0 0 16 16" width={size} height={size} aria-hidden="true" className="shrink-0">
+      <rect
+        x="3"
+        y="7"
+        width="10"
+        height="7"
+        rx="2"
+        fill="var(--color-mauve)"
+        stroke="var(--color-crust)"
+        strokeWidth="1"
+      />
+      <path
+        d={open ? "M5.5 7V5a2.5 2.5 0 0 1 4.6-1.3" : "M5.5 7V5a2.5 2.5 0 0 1 5 0v2"}
+        fill="none"
+        stroke="var(--color-crust)"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+      <circle cx="8" cy="10.5" r="1" fill="var(--color-crust)" />
+    </svg>
+  );
+}
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3 border-t border-surface0/60 pt-4 first:border-0 first:pt-0">
+      <p className="text-[0.62rem] font-semibold tracking-[0.12em] text-overlay0 uppercase">{title}</p>
+      {children}
+    </section>
+  );
+}
 
 function SettingsPanel({
   settings,
   notesPath,
   hidden,
+  pin,
   onChange,
   onUnhide,
+  onOpenNote,
+  onPin,
+  onLock,
   onClose,
 }: {
   settings: Settings;
   notesPath: string;
   hidden: Note[];
+  pin: PinStatus;
   onChange: (next: Settings) => void;
   onUnhide: (note: Note) => void;
+  onOpenNote: (note: Note) => void;
+  onPin: (mode: "create" | "unlock" | "change" | "remove") => void;
+  onLock: () => void;
   onClose: () => void;
 }) {
   const [root, setRoot] = useState(settings.notes_root ?? "");
+  const small =
+    "rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1";
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-mantle level-enter">
       <div className="flex items-center gap-2 border-b border-surface0/70 px-3 py-2.5">
         <span className="text-sm font-semibold">Configurações</span>
-        <button
-          onClick={onClose}
-          className="ml-auto rounded-md px-2 py-1 text-xs text-overlay0 transition hover:bg-surface0 hover:text-text"
-        >
+        <button onClick={onClose} className="ml-auto rounded-md px-2 py-1 text-xs text-overlay0 transition hover:bg-surface0 hover:text-text">
           fechar
         </button>
       </div>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-3 py-4 text-sm">
-        <section>
-          <label htmlFor="theme" className="mb-2 block text-subtext1">
-            Tema
-          </label>
-          <select
-            id="theme"
-            value={settings.theme}
-            onChange={(event) => onChange({ ...settings, theme: event.target.value })}
-            className="w-full rounded-md border border-surface0/60 bg-base px-2 py-1.5 text-sm outline-none focus:border-mauve/70"
-          >
-            {THEMES.map((theme) => (
-              <option key={theme.id} value={theme.id}>
-                {theme.label}
-              </option>
-            ))}
-          </select>
-        </section>
-
-        <section>
-          <div className="mb-2 flex items-baseline justify-between">
-            <label htmlFor="scale" className="text-subtext1">
-              Tamanho da fonte
+        <Group title="Aparência">
+          <div>
+            <label htmlFor="theme" className="mb-1.5 block text-subtext1">
+              Tema
             </label>
-            <span className="tabular-nums text-xs text-overlay0">{settings.font_scale}%</span>
+            <select
+              id="theme"
+              value={settings.theme}
+              onChange={(event) => onChange({ ...settings, theme: event.target.value })}
+              className="w-full rounded-md border border-surface0/60 bg-base px-2 py-1.5 text-sm outline-none focus:border-mauve/70"
+            >
+              {THEMES.map((theme) => (
+                <option key={theme.id} value={theme.id}>
+                  {theme.label}
+                </option>
+              ))}
+            </select>
           </div>
-          <input
-            id="scale"
-            type="range"
-            min={80}
-            max={160}
-            step={5}
-            value={settings.font_scale}
-            onChange={(event) => onChange({ ...settings, font_scale: Number(event.target.value) })}
-            className="w-full accent-mauve"
-          />
-        </section>
 
-        <section className="flex items-start gap-3">
-          <input
-            id="autostart"
-            type="checkbox"
-            checked={settings.autostart}
-            onChange={(event) => onChange({ ...settings, autostart: event.target.checked })}
-            className="mt-1 h-4 w-4 accent-mauve"
-          />
-          <label htmlFor="autostart" className="text-subtext1">
-            Abrir com o sistema
-            <span className="mt-0.5 block text-xs text-overlay0">
-              Inicia oculto na bandeja, fora da barra de tarefas.
+          <div>
+            <label htmlFor="motion" className="mb-1.5 block text-subtext1">
+              Animação
+            </label>
+            <select
+              id="motion"
+              value={settings.motion}
+              onChange={(event) => onChange({ ...settings, motion: event.target.value })}
+              className="w-full rounded-md border border-surface0/60 bg-base px-2 py-1.5 text-sm outline-none focus:border-mauve/70"
+            >
+              {MOTIONS.map((motion) => (
+                <option key={motion.id} value={motion.id}>
+                  {motion.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="mb-1.5 flex items-baseline justify-between">
+              <label htmlFor="scale" className="text-subtext1">
+                Tamanho da fonte
+              </label>
+              <span className="tabular-nums text-xs text-overlay0">{settings.font_scale}%</span>
+            </div>
+            <input
+              id="scale"
+              type="range"
+              min={80}
+              max={160}
+              step={5}
+              value={settings.font_scale}
+              onChange={(event) => onChange({ ...settings, font_scale: Number(event.target.value) })}
+              className="w-full accent-mauve"
+            />
+          </div>
+        </Group>
+
+        <Group title="Janela">
+          <div>
+            <label htmlFor="minimize" className="mb-1.5 block text-subtext1">
+              Ao minimizar
+            </label>
+            <select
+              id="minimize"
+              value={settings.minimize_mode}
+              onChange={(event) => onChange({ ...settings, minimize_mode: event.target.value })}
+              className="w-full rounded-md border border-surface0/60 bg-base px-2 py-1.5 text-sm outline-none focus:border-mauve/70"
+            >
+              <option value="bubble">Bolinha (Kami)</option>
+              <option value="hide">Só ocultar</option>
+            </select>
+          </div>
+          <label className="flex items-start gap-2 text-subtext1">
+            <input
+              type="checkbox"
+              checked={settings.autostart}
+              onChange={(event) => onChange({ ...settings, autostart: event.target.checked })}
+              className="mt-0.5 h-4 w-4 accent-mauve"
+            />
+            <span>
+              Abrir com o sistema
+              <span className="mt-0.5 block text-xs text-overlay0">Inicia oculto na bandeja.</span>
             </span>
           </label>
-        </section>
+        </Group>
 
-        <section className="border-t border-surface0/60 pt-4">
-          <label htmlFor="notes-root" className="mb-1.5 block text-subtext1">
-            Pasta das notas
-          </label>
-          <div className="flex gap-1.5">
+        <Group title="Notas">
+          <div>
+            <label htmlFor="notes-root" className="mb-1.5 block text-subtext1">
+              Pasta das notas
+            </label>
+            <div className="flex gap-1.5">
+              <input
+                id="notes-root"
+                value={root}
+                onChange={(event) => setRoot(event.target.value)}
+                placeholder={notesPath}
+                spellCheck={false}
+                className="min-w-0 flex-1 rounded-md border border-surface0/60 bg-base px-2 py-1 text-xs outline-none focus:border-mauve/70"
+              />
+              <button
+                onClick={() => onChange({ ...settings, notes_root: root.trim() || null })}
+                className="rounded-md bg-surface0 px-2 py-1 text-xs text-subtext1 transition hover:bg-surface1"
+              >
+                aplicar
+              </button>
+              <button
+                onClick={() => void invoke("open_notes_dir").catch(() => {})}
+                className="rounded-md bg-surface0 px-2 py-1 text-xs text-subtext1 transition hover:bg-surface1"
+              >
+                abrir
+              </button>
+            </div>
+            <p className="mt-1 break-all text-[0.6rem] text-overlay0">{notesPath}</p>
+          </div>
+
+          <label className="flex items-start gap-2 text-subtext1">
             <input
-              id="notes-root"
-              value={root}
-              onChange={(event) => setRoot(event.target.value)}
-              placeholder={notesPath}
-              spellCheck={false}
-              className="min-w-0 flex-1 rounded-md border border-surface0/60 bg-base px-2 py-1 text-xs outline-none focus:border-mauve/70"
+              type="checkbox"
+              checked={settings.autosave}
+              onChange={(event) => onChange({ ...settings, autosave: event.target.checked })}
+              className="mt-0.5 h-4 w-4 accent-mauve"
             />
+            <span>
+              Salvamento automático
+              <span className="mt-0.5 block text-xs text-overlay0">
+                Desligado: só grava ao clicar em Salvar.
+              </span>
+            </span>
+          </label>
+
+          <div className="rounded-lg border border-surface0/60 bg-base/50 p-2.5">
+            <div className="flex items-center gap-2">
+              <Kami size={26} pose={pin.set && !pin.unlocked ? "bloqueado" : "feliz"} />
+              <Padlock open={pin.set && pin.unlocked} />
+              <span className="text-subtext1">Notas protegidas</span>
+              <span className="ml-auto text-xs text-overlay0">{hidden.length}</span>
+            </div>
+
+            {!pin.set ? (
+              <div className="mt-2 space-y-1.5">
+                <p className="text-xs leading-relaxed text-overlay0">
+                  Proteger uma nota cifra o conteúdo com o PIN. Sem ele, não há como ler.
+                </p>
+                <button onClick={() => onPin("create")} className={small}>
+                  criar PIN
+                </button>
+              </div>
+            ) : pin.unlocked ? (
+              <div className="mt-2 space-y-2 text-xs">
+                <div className="flex items-center gap-1">
+                  <span className="text-subtext0">desbloqueado</span>
+                  <div className="ml-auto flex gap-1">
+                    <button onClick={() => onPin("change")} className={small}>
+                      alterar
+                    </button>
+                    <button onClick={() => onPin("remove")} className={small}>
+                      remover
+                    </button>
+                    <button onClick={onLock} className={small}>
+                      travar
+                    </button>
+                  </div>
+                </div>
+                {hidden.length === 0 ? (
+                  <p className="text-overlay0">Nenhuma nota protegida. Botão direito na nota → Proteger.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {hidden.map((note) => (
+                      <li key={note.id} className="flex items-center gap-2">
+                        <span className="truncate text-subtext0">{note.title || "Nota protegida"}</span>
+                        <button onClick={() => onOpenNote(note)} className={`ml-auto ${small}`}>
+                          mostrar
+                        </button>
+                        <button onClick={() => onUnhide(note)} className={small}>
+                          restaurar
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <div className="mt-2 flex items-center gap-2 text-xs">
+                <span className="text-subtext0">
+                  {hidden.length} nota(s) cifrada(s) — 4 erros apagam
+                </span>
+                <button onClick={() => onPin("unlock")} className={`ml-auto ${small}`}>
+                  desbloquear
+                </button>
+              </div>
+            )}
+          </div>
+        </Group>
+
+        <Group title="Integração IA">
+          <div className="flex items-center justify-between">
+            <span className="text-subtext1">Texto para colar na sua IA</span>
             <button
-              onClick={() => onChange({ ...settings, notes_root: root.trim() || null })}
-              className="rounded-md bg-surface0 px-2 py-1 text-xs text-subtext1 transition hover:bg-surface1"
+              onClick={() => copyText(`Instale e configure o HashiMemo neste ambiente.\n\n1. Descubra os caminhos padrão do sistema (apps instalados, skills do agente, documentos do usuário).\n2. Instale o HashiMemo (desktop, Windows ou Linux) e deixe o comando hashimemo no PATH.\n3. Crie a pasta de notas: um .md por nota com frontmatter YAML (title, group, color, pinned, hidden, remind_at, protected).\n4. Registre a skill de notas: listar/buscar/ler/criar/editar pela CLI (list, search, read, new, edit, context, path); guardar no grupo IA o que for para o usuário; nunca copiar senhas; notas com protected: true são cifradas.\n5. Confirme os caminhos, crie uma nota de teste no grupo IA e leia de volta.`)}
+              className={small}
             >
-              aplicar
+              copiar
             </button>
           </div>
-          <p className="mt-1.5 break-all text-[0.65rem] text-overlay0">
-            vazio = padrão (~/HashiMemo/notes) · atual: {notesPath}
-          </p>
-        </section>
+          <Md
+            text={OPENCODE_HELP}
+            className="rounded-md border border-surface0/60 bg-base/60 px-2.5 py-2 text-xs leading-relaxed text-subtext0 select-text"
+          />
+        </Group>
 
-        <section className="border-t border-surface0/60 pt-4">
-          <div className="mb-2 flex items-baseline justify-between">
-            <span className="text-subtext1">Notas ocultas</span>
-            <span className="text-xs text-overlay0">{hidden.length}</span>
-          </div>
-          {hidden.length === 0 ? (
-            <p className="text-xs text-overlay0">
-              Nenhuma. Use o botão direito na nota → Ocultar.
-            </p>
-          ) : (
-            <ul className="space-y-1">
-              {hidden.map((note) => (
-                <li key={note.id} className="flex items-center gap-2 text-xs">
-                  <span className="truncate text-subtext0">{note.title || "Sem título"}</span>
-                  <button
-                    onClick={() => onUnhide(note)}
-                    className="ml-auto shrink-0 rounded bg-surface0/70 px-1.5 py-0.5 text-[0.65rem] text-subtext1 transition hover:bg-surface1"
-                  >
-                    mostrar
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="border-t border-surface0/60 pt-4">
-          <p className="mb-2 text-subtext1">Integração OpenCode</p>
-          <Md text={OPENCODE_HELP} className="rounded-md border border-surface0/60 bg-base/60 px-2.5 py-2 text-xs leading-relaxed text-subtext0" />
-        </section>
-
-        <section className="space-y-1.5 border-t border-surface0/60 pt-4 text-xs text-overlay0">
-          <p className="flex justify-between gap-3">
+        <Group title="Sobre">
+          <p className="flex justify-between gap-3 text-xs text-overlay0">
             <span>Mostrar/ocultar</span>
             <kbd className="rounded bg-surface0/70 px-1.5 py-0.5 text-subtext1">Ctrl+Alt+N</kbd>
           </p>
-          <p className="flex justify-between gap-3">
+          <p className="flex justify-between gap-3 text-xs text-overlay0">
             <span>Voltar ao rail</span>
             <kbd className="rounded bg-surface0/70 px-1.5 py-0.5 text-subtext1">Esc</kbd>
           </p>
-        </section>
+          <p className="flex justify-between gap-3 text-xs text-overlay0">
+            <span>Versão</span>
+            <span className="tabular-nums text-subtext1">0.3.1</span>
+          </p>
+        </Group>
+      </div>
+    </div>
+  );
+}
+
+function GroupMenu({
+  name,
+  count,
+  pinned,
+  x,
+  y,
+  onPin,
+  onMove,
+  onClear,
+  onDelete,
+  onClose,
+}: {
+  name: string;
+  count: number;
+  pinned: boolean;
+  x: number;
+  y: number;
+  onPin: () => void;
+  onMove: (delta: number) => void;
+  onClear: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const left = Math.max(8, Math.min(x, window.innerWidth - 200));
+  const top = Math.max(8, Math.min(y, window.innerHeight - 220));
+  const item =
+    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-subtext1 transition hover:bg-surface0 hover:text-text";
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} onContextMenu={(e) => e.preventDefault()} />
+      <div
+        className="fixed z-50 w-48 overflow-hidden rounded-lg border border-surface1/70 bg-mantle py-1 text-xs shadow-[0_18px_40px_-18px_rgb(0_0_0/0.9)] menu-enter"
+        style={{ left, top }}
+      >
+        <p className="truncate px-3 py-1 text-[0.6rem] tracking-wider text-overlay0 uppercase">
+          {name} · {count}
+        </p>
+        <button
+          onClick={() => {
+            onPin();
+            onClose();
+          }}
+          className={item}
+        >
+          {pinned ? "Desafixar grupo" : "Fixar no início"}
+        </button>
+        <button
+          onClick={() => {
+            onMove(-1);
+            onClose();
+          }}
+          className={item}
+        >
+          Mover para ←
+        </button>
+        <button
+          onClick={() => {
+            onMove(1);
+            onClose();
+          }}
+          className={item}
+        >
+          Mover para →
+        </button>
+        <div className="my-1 border-t border-surface0/70" />
+        <button
+          onClick={() => {
+            onClear();
+            onClose();
+          }}
+          className={item}
+        >
+          Limpar grupo
+        </button>
+        <button
+          onClick={() => {
+            onDelete();
+            onClose();
+          }}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red/90 transition hover:bg-red/15 hover:text-red"
+        >
+          Excluir grupo
+        </button>
+      </div>
+    </>
+  );
+}
+
+function PinDialog({
+  mode,
+  error,
+  onSubmit,
+  onClose,
+}: {
+  mode: "create" | "unlock" | "change" | "remove";
+  error: string;
+  onSubmit: (value: string, next?: string) => void;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const [next, setNext] = useState("");
+  const [local, setLocal] = useState("");
+  const titles = {
+    create: "Criar PIN",
+    unlock: "Desbloquear notas",
+    change: "Alterar PIN",
+    remove: "Remover PIN",
+  };
+  const hints = {
+    create: "De 4 a 8 dígitos. Sem ele as notas bloqueadas não abrem.",
+    unlock: "4 tentativas erradas apagam as notas protegidas.",
+    change: "O PIN atual cifra as notas; o novo passa a valer para todas.",
+    remove: "Remove o PIN e devolve todas as notas ocultas à lista.",
+  };
+  const digits = (input: string) => /^\d{4,8}$/.test(input);
+  const submit = () => {
+    if (!digits(value)) return setLocal("use de 4 a 8 dígitos");
+    if (mode === "change" && !digits(next)) return setLocal("o novo PIN precisa de 4 a 8 dígitos");
+    setLocal("");
+    onSubmit(value, mode === "change" ? next : undefined);
+  };
+  return (
+    <div className="absolute inset-0 z-[70] flex items-center justify-center bg-crust/70 px-4 backdrop-blur-sm">
+      <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl pop-enter">
+        <p className="text-sm font-semibold">{titles[mode]}</p>
+        <p className="mt-1 text-xs leading-relaxed text-subtext0">{hints[mode]}</p>
+        <input
+          autoFocus
+          type="password"
+          inputMode="numeric"
+          maxLength={8}
+          value={value}
+          onChange={(event) => setValue(event.target.value.replace(/\D/g, ""))}
+          onKeyDown={(event) => event.key === "Enter" && mode !== "change" && submit()}
+          placeholder={mode === "change" ? "PIN atual" : "PIN"}
+          className="mt-3 w-full rounded-md border border-surface0/60 bg-base px-2.5 py-1.5 tracking-[0.3em] outline-none focus:border-mauve/70"
+        />
+        {mode === "change" && (
+          <input
+            type="password"
+            inputMode="numeric"
+            maxLength={8}
+            value={next}
+            onChange={(event) => setNext(event.target.value.replace(/\D/g, ""))}
+            onKeyDown={(event) => event.key === "Enter" && submit()}
+            placeholder="novo PIN"
+            className="mt-2 w-full rounded-md border border-surface0/60 bg-base px-2.5 py-1.5 tracking-[0.3em] outline-none focus:border-mauve/70"
+          />
+        )}
+        {(local || error) && <p className="mt-2 text-xs text-red">{local || error}</p>}
+        <div className="mt-3 flex justify-end gap-2 text-xs">
+          <button onClick={onClose} className="rounded-md px-2.5 py-1.5 text-subtext1 transition hover:bg-surface0">
+            cancelar
+          </button>
+          <button onClick={submit} className="rounded-md bg-mauve px-2.5 py-1.5 font-medium text-crust transition hover:bg-lavender">
+            confirmar
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -635,18 +1071,39 @@ export default function App() {
     autostart: true,
     theme: "mocha",
     notes_root: null,
+    motion: "fluid",
+    autosave: true,
+    minimize_mode: "bubble",
   });
   const [notes, setNotes] = useState<Note[]>([]);
   const [notesPath, setNotesPath] = useState("");
   const [draft, setDraft] = useState<Note | null>(null);
   const [conflict, setConflict] = useState<Note | null>(null);
   const [panel, setPanel] = useState(false);
-  const [collapsing, setCollapsing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState(() => localStorage.getItem("hashimemo.tab") ?? "Todos");
   const [menu, setMenu] = useState<{ note: Note; x: number; y: number } | null>(null);
   const [notice, setNotice] = useState("");
+  const [collapsing, setCollapsing] = useState(false);
+  const [levelPop, setLevelPop] = useState(false);
+  const [expanding, setExpanding] = useState(false);
+  const [welcome, setWelcome] = useState(true);
+  const popTimer = useRef<number>(0);
+  const [flash, setFlash] = useState<{ open: boolean; label: string } | null>(null);
+  const [pin, setPin] = useState<PinStatus>({ set: false, unlocked: false, fails: 0 });
+  const [pinDialog, setPinDialog] = useState<{
+    mode: "create" | "unlock" | "change" | "remove";
+    action?: "hide" | "show";
+    note?: Note;
+  } | null>(null);
+  const [pinError, setPinError] = useState("");
   const [pending, setPending] = useState<Note | null>(null);
+  const [groupMenu, setGroupMenu] = useState<{ name: string; x: number; y: number } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    body: string;
+    run: () => void;
+  } | null>(null);
   const [groupOrder, setGroupOrder] = useState<string[]>(() => {
     try {
       const raw = localStorage.getItem("hashimemo.groups");
@@ -655,10 +1112,35 @@ export default function App() {
       return [];
     }
   });
-  const [dragGroup, setDragGroup] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null);
+  const [pinnedGroups, setPinnedGroups] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem("hashimemo.pinnedGroups");
+      return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [sort, setSort] = useState<"new" | "old" | "custom">(() => {
+    const saved = localStorage.getItem("hashimemo.sort");
+    return saved === "old" || saved === "custom" ? saved : "new";
+  });
+  const [groupDrag, setGroupDrag] = useState<{
+    name: string;
+    x: number;
+    y: number;
+    index: number;
+  } | null>(null);
+  const [noteDrag, setNoteDrag] = useState<{
+    id: string;
+    label: string;
+    x: number;
+    y: number;
+    index: number;
+  } | null>(null);
+  const skipClick = useRef(false);
   const saved = useRef<string>("");
   const tabsRef = useRef<HTMLElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const reload = useCallback(() => {
     invoke<Note[]>("list_notes").then(setNotes).catch(() => {});
@@ -668,12 +1150,40 @@ export default function App() {
     invoke<WindowState>("window_state").then(setWin).catch(() => {});
     invoke<Settings>("get_settings").then(setSettings).catch(() => {});
     invoke<string>("notes_dir").then(setNotesPath).catch(() => {});
+    invoke<PinStatus>("pin_status").then(setPin).catch(() => {});
     reload();
     const unlisten = listen("notes:changed", () => reload());
+    const collapse = listen("app:collapse", () => {
+      setCollapsing(true);
+    });
+    const expand = listen("app:expand", () => {
+      setExpanding(true);
+      window.clearTimeout(popTimer.current);
+      popTimer.current = window.setTimeout(() => setExpanding(false), 700);
+    });
+    const level = listen("window:level", () => {
+      setLevelPop(true);
+      window.clearTimeout(popTimer.current);
+      popTimer.current = window.setTimeout(
+        () => setLevelPop(false),
+        (MOTION_MS[settings.motion] ?? 420) + 120,
+      );
+    });
+    const reset = () => setCollapsing(false);
+    window.addEventListener("focus", reset);
     return () => {
       void unlisten.then((off) => off());
+      void collapse.then((off) => off());
+      void level.then((off) => off());
+      void expand.then((off) => off());
+      window.removeEventListener("focus", reset);
     };
-  }, [reload]);
+  }, [reload, settings.motion]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setWelcome(false), 1700);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     document.documentElement.style.setProperty("--scale", String(settings.font_scale / 100));
@@ -682,6 +1192,10 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme || "mocha";
   }, [settings.theme]);
+
+  useEffect(() => {
+    document.documentElement.dataset.motion = settings.motion || "fluid";
+  }, [settings.motion]);
 
   const persist = useCallback((next: Settings) => {
     setSettings(next);
@@ -723,14 +1237,40 @@ export default function App() {
     }
   }, []);
 
+  const restoreFocus = useRef(false);
+  const levelRef = useRef(win.level);
+
+  useEffect(() => {
+    levelRef.current = win.level;
+  }, [win.level]);
+
+  useEffect(() => {
+    const current = getCurrentWindow();
+    const unlisten = current.onFocusChanged(({ payload: focused }) => {
+      if (!focused && levelRef.current === "Focus") {
+        restoreFocus.current = true;
+        void setLevel("Docked");
+      } else if (focused && restoreFocus.current) {
+        restoreFocus.current = false;
+        void setLevel("Focus");
+      }
+    });
+    return () => {
+      void unlisten.then((off) => off());
+    };
+  }, [setLevel]);
+
   const open = useCallback(
     (note: Note, expand = false) => {
+      if (draft && draft.id !== note.id && JSON.stringify(draft) !== saved.current) {
+        void invoke("update_note", { note: draft }).catch(() => {});
+      }
       saved.current = JSON.stringify(note);
       setDraft(note);
       setConflict(null);
       if (expand && win.level === "Docked") void setLevel("Focus");
     },
-    [setLevel, win.level],
+    [draft, setLevel, win.level],
   );
 
   const closeEditor = useCallback(() => {
@@ -739,20 +1279,73 @@ export default function App() {
     setNotes((current) => current.map((note) => (draft && note.id === draft.id ? draft : note)));
   }, [draft]);
 
-  const createNote = useCallback(async () => {
-    try {
-      const note = await invoke<Note>("create_note", {
-        title: "",
-        body: "",
-        color: "mauve",
-        group: "",
+  const createNote = useCallback(() => {
+    const now = new Date().toISOString();
+    const note: Note = {
+      id: "",
+      title: "",
+      body: "",
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      group: tab === "Todos" ? "" : tab,
+      order: 0,
+      pinned: false,
+      hidden: false,
+      protected: false,
+      remind_at: "",
+      created: now,
+      updated: now,
+      mtime: 0,
+    };
+    saved.current = "";
+    setDraft(note);
+    setConflict(null);
+    if (win.level === "Docked") void setLevel("Focus");
+  }, [setLevel, tab, win.level]);
+
+  const commitDraft = useCallback(async () => {
+    if (!draft) return;
+    if (!draft.id) {
+      const created = await invoke<Note>("create_note", {
+        title: draft.title,
+        body: draft.body,
+        color: draft.color,
+        group: draft.group,
+      }).catch((error) => {
+        setNotice(`erro ao criar: ${String(error)}`);
+        setTimeout(() => setNotice(""), 7000);
+        return null;
       });
+      if (!created) {
+        setNotice("não consegui salvar a nota");
+        setTimeout(() => setNotice(""), 5000);
+        return;
+      }
+      const extra: Note = {
+        ...created,
+        pinned: draft.pinned,
+        hidden: draft.hidden,
+        remind_at: draft.remind_at,
+      };
+      const savedNote = await invoke<Note>("update_note", { note: extra }).catch(() => created);
+      saved.current = JSON.stringify(savedNote);
+      setDraft(savedNote);
       reload();
-      open(note, true);
-    } catch {
-      /* watcher reloads on next change */
+      return;
     }
-  }, [open, reload]);
+    const savedNote = await invoke<Note>("update_note", { note: draft }).catch((error) => {
+      setNotice(`erro ao salvar: ${String(error)}`);
+      setTimeout(() => setNotice(""), 7000);
+      return null;
+    });
+    if (!savedNote) {
+      setNotice("não consegui salvar a nota");
+      setTimeout(() => setNotice(""), 5000);
+      return;
+    }
+    saved.current = JSON.stringify(savedNote);
+    setDraft(savedNote);
+    reload();
+  }, [draft, reload]);
 
   const remove = useCallback(async () => {
     if (!draft) return;
@@ -794,13 +1387,90 @@ export default function App() {
 
   const toggleHidden = useCallback(
     async (note: Note) => {
-      await invoke("update_note", { note: { ...note, hidden: !note.hidden } }).catch(() => {});
+      const target = !note.hidden;
+      if (target) {
+        if (!pin.set) return setPinDialog({ mode: "create", action: "hide", note });
+        if (!pin.unlocked) return setPinDialog({ mode: "unlock", action: "hide", note });
+        await invoke("set_protected", { id: note.id, protected: true }).catch((error) => {
+          setNotice(String(error));
+          setTimeout(() => setNotice(""), 5000);
+        });
+      } else {
+        if (!pin.unlocked) return setPinDialog({ mode: "unlock", action: "show", note });
+        await invoke("set_protected", { id: note.id, protected: false }).catch((error) => {
+          setNotice(String(error));
+          setTimeout(() => setNotice(""), 5000);
+        });
+      }
+      if (target) {
+        setFlash({ open: false, label: "Nota protegida" });
+        window.setTimeout(() => setFlash(null), 1500);
+      }
       reload();
     },
-    [reload],
+    [pin.set, pin.unlocked, reload],
+  );
+
+  const lockNotes = useCallback(async () => {
+    setPin(await invoke<PinStatus>("pin_lock"));
+    setFlash({ open: false, label: "Cofre bloqueado" });
+    window.setTimeout(() => setFlash(null), 1400);
+    setDraft(null);
+    reload();
+  }, [reload]);
+
+  const closeSettings = useCallback(() => {
+    setPanel(false);
+    if (pin.unlocked) void lockNotes();
+  }, [lockNotes, pin.unlocked]);
+
+  const submitPin = useCallback(
+    async (value: string, next?: string) => {
+      if (!pinDialog) return;
+      setPinError("");
+      try {
+        const status = await invoke<PinStatus>(
+          pinDialog.mode === "create"
+            ? "pin_create"
+            : pinDialog.mode === "unlock"
+              ? "pin_unlock"
+              : pinDialog.mode === "change"
+                ? "pin_change"
+                : "pin_remove",
+          pinDialog.mode === "change"
+            ? { old: value, new: next }
+            : { pin: value },
+        );
+        setPin(status);
+        setFlash(
+          pinDialog.mode === "create"
+            ? { open: false, label: "Cofre bloqueado" }
+            : { open: true, label: "Cofre desbloqueado" },
+        );
+        window.setTimeout(() => setFlash(null), 1400);
+        const action = pinDialog.action;
+        const target = pinDialog.note;
+        setPinDialog(null);
+        if (action && target) {
+          await invoke("set_protected", { id: target.id, protected: action === "hide" }).catch(
+            (error) => {
+              setNotice(String(error));
+              setTimeout(() => setNotice(""), 5000);
+            },
+          );
+        }
+        reload();
+      } catch (error) {
+        setPinError(String(error));
+        invoke<PinStatus>("pin_status").then(setPin).catch(() => {});
+        reload();
+      }
+    },
+    [pinDialog, reload],
   );
 
   const goRail = useCallback(() => {
+    restoreFocus.current = false;
     setDraft(null);
     setConflict(null);
     setMenu(null);
@@ -831,6 +1501,7 @@ export default function App() {
   const applyDraft = useCallback(
     (next: Note) => {
       setDraft(next);
+      if (!settings.autosave || !next.id) return;
       void invoke<Note>("update_note", { note: next })
         .then((savedNote) => {
           saved.current = JSON.stringify(savedNote);
@@ -849,28 +1520,35 @@ export default function App() {
           }
         });
     },
-    [],
+    [settings.autosave],
   );
 
   useEffect(() => {
-    if (!draft) return;
+    if (!draft || !settings.autosave) return;
+    if (!draft.id) return;
     if (JSON.stringify(draft) === saved.current) return;
     const timer = setTimeout(() => applyDraft(draft), 700);
     return () => clearTimeout(timer);
-  }, [applyDraft, draft]);
+  }, [applyDraft, draft, settings.autosave]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (pinDialog) {
+        setPinDialog(null);
+        return setPinError("");
+      }
+      if (groupMenu) return setGroupMenu(null);
+      if (confirmAction) return setConfirmAction(null);
       if (menu) return setMenu(null);
       if (pending) return setPending(null);
-      if (panel) return setPanel(false);
+      if (panel) return closeSettings();
       if (draft) return closeEditor();
       if (win.level !== "Docked") void setLevel("Docked");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeEditor, draft, menu, panel, pending, setLevel, win.level]);
+  }, [closeEditor, confirmAction, draft, groupMenu, menu, panel, pending, pinDialog, setLevel, win.level]);
 
   const visible = useMemo(() => notes.filter((note) => !note.hidden), [notes]);
 
@@ -878,6 +1556,9 @@ export default function App() {
     const found = new Set<string>();
     for (const note of visible) if (note.group.trim()) found.add(note.group.trim());
     return [...found].sort((a, b) => {
+      const pinnedLeft = pinnedGroups[a] ?? 0;
+      const pinnedRight = pinnedGroups[b] ?? 0;
+      if (pinnedLeft !== pinnedRight) return pinnedRight - pinnedLeft;
       const left = groupOrder.indexOf(a);
       const right = groupOrder.indexOf(b);
       if (left === -1 && right === -1) return a.localeCompare(b, "pt-BR");
@@ -885,35 +1566,325 @@ export default function App() {
       if (right === -1) return -1;
       return left - right;
     });
-  }, [groupOrder, visible]);
+  }, [groupOrder, pinnedGroups, visible]);
 
   useEffect(() => {
     localStorage.setItem("hashimemo.tab", tab);
     if (tab !== "Todos" && !groups.includes(tab)) setTab("Todos");
   }, [groups, tab]);
 
-  const moveGroup = useCallback(
-    (from: string, to: string) => {
-      if (from === to) return;
-      const current = [...groups];
-      const next = current.filter((name) => name !== from);
-      next.splice(next.indexOf(to), 0, from);
-      setGroupOrder(next);
-      localStorage.setItem("hashimemo.groups", JSON.stringify(next));
+  useEffect(() => {
+    localStorage.setItem("hashimemo.sort", sort);
+  }, [sort]);
+
+  useEffect(() => {
+    localStorage.setItem("hashimemo.pinnedGroups", JSON.stringify(pinnedGroups));
+  }, [pinnedGroups]);
+
+  const shiftGroup = useCallback(
+    (name: string, delta: number) => {
+      const list = [...groups];
+      const index = list.indexOf(name);
+      const target = index + delta;
+      if (index < 0 || target < 0 || target >= list.length) return;
+      [list[index], list[target]] = [list[target], list[index]];
+      setGroupOrder(list);
+      localStorage.setItem("hashimemo.groups", JSON.stringify(list));
     },
     [groups],
   );
 
-  const ordered = useMemo(
-    () => (tab === "Todos" ? visible : visible.filter((note) => note.group.trim() === tab)),
-    [tab, visible],
+  const pinGroup = useCallback((name: string) => {
+    setPinnedGroups((current) => {
+      const next = { ...current };
+      if (next[name]) {
+        delete next[name];
+      } else {
+        next[name] = Date.now();
+      }
+      return next;
+    });
+  }, []);
+
+  const clearGroup = useCallback(
+    (name: string) => {
+      const targets = notes.filter((note) => note.group.trim() === name);
+      setConfirmAction({
+        title: `Limpar "${name}"?`,
+        body: `As ${targets.length} notas do grupo continuam existindo, mas ficam sem grupo.`,
+        run: () => {
+          void Promise.all(
+            targets.map((note) => invoke("update_note", { note: { ...note, group: "" } }).catch(() => {})),
+          ).then(() => {
+            setConfirmAction(null);
+            reload();
+          });
+        },
+      });
+    },
+    [notes, reload],
   );
-  const railBlocked = win.level !== "Docked" && Boolean(draft);
+
+  const deleteGroup = useCallback(
+    (name: string) => {
+      const targets = notes.filter((note) => note.group.trim() === name);
+      setConfirmAction({
+        title: `Excluir "${name}"?`,
+        body: `Isso apaga as ${targets.length} notas deste grupo da pasta de notas.`,
+        run: () => {
+          void Promise.all(
+            targets.map((note) => invoke("delete_note", { id: note.id }).catch(() => {})),
+          ).then(() => {
+            if (draft && targets.some((note) => note.id === draft.id)) setDraft(null);
+            setConfirmAction(null);
+            reload();
+          });
+        },
+      });
+    },
+    [draft, notes, reload],
+  );
+
+  const startGroupDrag = (event: ReactPointerEvent, name: string) => {
+    if (name === "Todos" || event.button !== 0) return;
+    const nav = tabsRef.current;
+    if (!nav) return;
+
+    const others = () =>
+      Array.from(nav.querySelectorAll<HTMLElement>("[data-group]")).filter(
+        (element) => element.dataset.group !== "Todos",
+      );
+    const slot = (clientX: number) => {
+      const list = others();
+      for (let index = 0; index < list.length; index += 1) {
+        const rect = list[index].getBoundingClientRect();
+        if (clientX < rect.left + rect.width / 2) return index;
+      }
+      return list.length;
+    };
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let active = false;
+    skipClick.current = false;
+
+    const move = (moveEvent: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 8) return;
+        active = true;
+        skipClick.current = true;
+      }
+      setGroupDrag({
+        name,
+        x: moveEvent.clientX,
+        y: moveEvent.clientY,
+        index: slot(moveEvent.clientX),
+      });
+    };
+
+    const end = (endEvent: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      setGroupDrag(null);
+      if (!active) return;
+      const original = [...groups];
+      const from = original.indexOf(name);
+      let to = slot(endEvent.clientX);
+      if (to > from) to -= 1;
+      const list = original.filter((group) => group !== name);
+      list.splice(Math.max(0, Math.min(to, list.length)), 0, name);
+      setGroupOrder(list);
+      localStorage.setItem("hashimemo.groups", JSON.stringify(list));
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  };
+
+  const startNoteDrag = (event: ReactPointerEvent, note: Note) => {
+    if (event.button !== 0) return;
+    const container = listRef.current;
+    if (!container) return;
+
+    const cards = () => Array.from(container.querySelectorAll<HTMLElement>("[data-note]"));
+    const slot = (clientY: number) => {
+      const list = cards();
+      for (let index = 0; index < list.length; index += 1) {
+        const rect = list[index].getBoundingClientRect();
+        if (clientY < rect.top + rect.height / 2) return index;
+      }
+      return list.length;
+    };
+
+    const startY = event.clientY;
+    const startX = event.clientX;
+    let active = false;
+    skipClick.current = false;
+
+    const move = (moveEvent: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 10) return;
+        active = true;
+        skipClick.current = true;
+      }
+      setNoteDrag({
+        id: note.id,
+        label: note.title || "Sem título",
+        x: moveEvent.clientX,
+        y: moveEvent.clientY,
+        index: slot(moveEvent.clientY),
+      });
+    };
+
+    const end = (endEvent: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      setNoteDrag(null);
+      if (!active) return;
+
+      const from = ordered.findIndex((item) => item.id === note.id);
+      let to = slot(endEvent.clientY);
+      if (to > from) to -= 1;
+      const rest = ordered.filter((item) => item.id !== note.id);
+      const index = Math.max(0, Math.min(to, rest.length));
+      const previous = rest[index - 1];
+      const next = rest[index];
+      const order = !previous && !next
+        ? 1
+        : !previous
+          ? next.order - 1
+          : !next
+            ? previous.order + 1
+            : (previous.order + next.order) / 2;
+
+      setSort("custom");
+      void invoke("update_note", { note: { ...note, order } })
+        .then(() => reload())
+        .catch(() => {});
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  };
+
+  const ordered = useMemo(() => {
+    const list = tab === "Todos" ? visible : visible.filter((note) => note.group.trim() === tab);
+    const byCreated = (a: Note, b: Note) => a.created.localeCompare(b.created);
+    const byOrder =
+      sort === "new"
+        ? (a: Note, b: Note) => byCreated(b, a)
+        : sort === "old"
+          ? byCreated
+          : (a: Note, b: Note) => a.order - b.order;
+    return [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned) || byOrder(a, b));
+  }, [sort, tab, visible]);
+  const focusMode = win.level === "Focus";
+  const maxMode = win.level === "Max";
   const focused = win.level !== "Docked";
+  const tabIndex = tab === "Todos" ? 0 : groups.indexOf(tab) + 1;
+  const lastTab = useRef(tabIndex);
+  const [slide, setSlide] = useState<"left" | "right">("right");
+
+  useEffect(() => {
+    if (tabIndex === lastTab.current) return;
+    setSlide(tabIndex > lastTab.current ? "right" : "left");
+    lastTab.current = tabIndex;
+  }, [tabIndex]);
+
+  const [pill, setPill] = useState<{ left: number; width: number; height: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const nav = tabsRef.current;
+    if (!nav) return;
+    const element = Array.from(nav.querySelectorAll<HTMLElement>("[data-group]")).find(
+      (item) => item.dataset.group === tab,
+    );
+    if (!element) {
+      setPill(null);
+      return;
+    }
+    const navRect = nav.getBoundingClientRect();
+    const rect = element.getBoundingClientRect();
+    setPill({
+      left: rect.left - navRect.left + nav.scrollLeft,
+      width: rect.width,
+      height: rect.height,
+    });
+  }, [groups, tab, settings.font_scale, groupDrag]);
+
+  const editorNode = (inline: boolean) =>
+    draft ? (
+      <Editor
+        note={draft}
+        groups={groups}
+        onChange={applyDraft}
+        onClose={focusMode || inline ? goRail : closeEditor}
+        onSave={() => void commitDraft()}
+        onDelete={remove}
+        onCapture={capture}
+        onError={(message) => {
+          setNotice(message);
+          setTimeout(() => setNotice(""), 6000);
+        }}
+        inline={inline}
+      />
+    ) : null;
+
+  const cards = (
+    <>
+      {ordered.map((note, index) => (
+        <Fragment key={note.id}>
+          {noteDrag && noteDrag.index === index && (
+            <div className="h-[2px] shrink-0 rounded bg-mauve" />
+          )}
+          <NoteCard
+            note={note}
+            onOpen={() => {
+              if (skipClick.current) {
+                skipClick.current = false;
+                return;
+              }
+              open(note);
+            }}
+            onPointerDown={(event) => startNoteDrag(event, note)}
+            onContext={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setMenu({ note, x: event.clientX, y: event.clientY });
+            }}
+          />
+        </Fragment>
+      ))}
+      {noteDrag && noteDrag.index >= ordered.length && (
+        <div className="h-[2px] shrink-0 rounded bg-mauve" />
+      )}
+      {ordered.length === 0 && (
+        <div className="mt-4 flex flex-col items-center rounded-card border border-dashed border-surface1 px-4 py-6 text-center">
+          <Kami size={72} pose="ideia" className="mb-2" />
+          <p className="text-sm text-subtext0">
+            {tab === "Todos" ? "Nenhuma nota ainda" : `Nenhuma nota em "${tab}"`}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-overlay0">
+            Crie pelo botão +, ou rode{" "}
+            <code className="rounded bg-surface0/70 px-1 py-0.5 text-[0.7rem] text-subtext1">
+              hashimemo new "texto"
+            </code>{" "}
+            no terminal — o rail atualiza na hora.
+          </p>
+        </div>
+      )}
+    </>
+  );
 
   return (
     <div
-      className={`relative flex h-full flex-col bg-base text-text transition-[transform,opacity] duration-500 ${collapsing ? "app-collapsing" : ""}`}
+      className={`app-root relative flex h-full flex-col bg-base text-text ${
+        collapsing ? "app-collapsing" : ""
+      } ${levelPop ? "level-pop" : ""} ${expanding ? "app-expanding" : ""}`}
       onContextMenu={(event) => event.preventDefault()}
     >
       <header
@@ -921,7 +1892,7 @@ export default function App() {
         className="flex items-center gap-2 border-b border-surface0/70 px-3 py-2.5"
       >
         <div className="flex items-center gap-2">
-          <Mark />
+          <Kami size={30} pose="rosto" />
           <span className="text-sm font-semibold tracking-tight">HashiMemo</span>
         </div>
 
@@ -951,6 +1922,19 @@ export default function App() {
               <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
             </svg>
           </button>
+          {win.level === "Focus" && (
+            <button
+              onClick={() => {
+                void invoke<WindowState>("toggle_focus_height").then(setWin).catch(() => {});
+              }}
+              title="Alternar altura (70% ↔ tela cheia)"
+              className="rounded-md p-1.5 text-overlay0 transition hover:bg-surface0 hover:text-text"
+            >
+              <svg viewBox="0 0 16 16" className="h-[1.05rem] w-[1.05rem]" fill="none" stroke="currentColor" strokeWidth="1.4">
+                <path d="M8 2v12M4.5 5.5L8 2l3.5 3.5M4.5 10.5L8 14l3.5-3.5" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={() => void toggleDock()}
             disabled={busy}
@@ -964,10 +1948,7 @@ export default function App() {
           <button
             onClick={() => {
               setCollapsing(true);
-              window.setTimeout(() => {
-                setCollapsing(false);
-                void invoke("minimize_to_bubble").catch(() => {});
-              }, 260);
+              window.setTimeout(() => void invoke("minimize_to_bubble").catch(() => {}), 250);
             }}
             title="Minimizar em bolinha"
             className="rounded-md p-1.5 text-overlay0 transition hover:bg-surface0 hover:text-text"
@@ -993,94 +1974,112 @@ export default function App() {
           if (!tabs || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
           tabs.scrollLeft += event.deltaY;
         }}
-        className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-surface0/70 px-2.5 py-1.5"
+        className="no-scrollbar relative flex shrink-0 gap-1 overflow-x-auto border-b border-surface0/70 px-2.5 py-1.5"
       >
-        {["Todos", ...groups].map((name) => (
-          <button
-            key={name}
-            draggable={name !== "Todos"}
-            onDragStart={() => setDragGroup(name)}
-            onDragEnd={() => {
-              setDragGroup(null);
-              setDragOver(null);
-            }}
-            onDragOver={(event) => {
-              if (dragGroup && dragGroup !== name && name !== "Todos") event.preventDefault();
-            }}
-            onDragEnter={() => {
-              if (dragGroup && name !== "Todos") setDragOver(name);
-            }}
-            onDragLeave={() => setDragOver((current) => (current === name ? null : current))}
-            onDrop={() => {
-              if (dragGroup && name !== "Todos") moveGroup(dragGroup, name);
-              setDragGroup(null);
-              setDragOver(null);
-            }}
-            onClick={() => setTab(name)}
-            className={`shrink-0 rounded-full px-2.5 py-1 text-[0.7rem] font-medium transition ${
-              tab === name
-                ? "bg-mauve/20 text-mauve"
-                : "text-overlay0 hover:bg-surface0/70 hover:text-subtext1"
-            } ${dragGroup === name ? "opacity-40" : ""} ${
-              dragOver === name ? "ring-1 ring-mauve/70" : ""
-            } ${name !== "Todos" ? "cursor-grab active:cursor-grabbing" : ""}`}
-          >
-            {name}
-          </button>
-        ))}
-      </nav>
-
-      <main
-        className={
-          railBlocked
-            ? "w-[360px] shrink-0 overflow-hidden px-2.5 py-2.5 opacity-45 pointer-events-none"
-            : focused
-              ? "mx-auto w-full max-w-3xl flex-1 overflow-y-auto px-5 py-4"
-              : "flex-1 overflow-y-auto px-2.5 py-2.5"
-        }
-      >
-        {focused && !railBlocked && (
-          <div className="mb-3 flex items-center gap-2 text-xs text-overlay0">
-            <button
-              onClick={goRail}
-              className="rounded bg-surface0/70 px-2 py-1 text-subtext1 transition hover:bg-surface1"
-            >
-              ← rail
-            </button>
-            <span>{win.level === "Max" ? "maximizado" : "foco 70%"}</span>
-            {win.hyprland && <span className="text-sapphire">hyprland</span>}
-          </div>
+        {pill && (
+          <div
+            className="tab-pill pointer-events-none absolute top-1/2 -translate-y-1/2 rounded-full bg-mauve/20"
+            style={{ left: pill.left, width: pill.width, height: pill.height }}
+          />
         )}
-
-        <div key={tab} className={`flex flex-col gap-2 list-enter ${focused ? "" : ""}`}>
-          {ordered.map((note) => (
-            <NoteCard
-              key={note.id}
-              note={note}
-              onOpen={() => open(note)}
-              onContext={(event) => {
+        {["Todos", ...groups].map((name, index) => (
+          <Fragment key={name}>
+            {groupDrag && groupDrag.index === index - 1 && index > 0 && (
+              <span className="h-4 w-[2px] shrink-0 self-center rounded bg-mauve" />
+            )}
+            <button
+              data-group={name}
+              onPointerDown={(event) => startGroupDrag(event, name)}
+              onClick={() => {
+                if (skipClick.current) {
+                  skipClick.current = false;
+                  return;
+                }
+                setTab(name);
+              }}
+              onContextMenu={(event) => {
+                if (name === "Todos") return;
                 event.preventDefault();
                 event.stopPropagation();
-                setMenu({ note, x: event.clientX, y: event.clientY });
+                setGroupMenu({ name, x: event.clientX, y: event.clientY });
               }}
-            />
-          ))}
-          {ordered.length === 0 && (
-            <div className="mt-6 rounded-card border border-dashed border-surface1 px-4 py-6 text-center">
-              <p className="text-sm text-subtext0">
-                {tab === "Todos" ? "Nenhuma nota ainda" : `Nenhuma nota em "${tab}"`}
-              </p>
-              <p className="mt-1 text-xs leading-relaxed text-overlay0">
-                Crie pelo botão +, ou rode{" "}
-                <code className="rounded bg-surface0/70 px-1 py-0.5 text-[0.7rem] text-subtext1">
-                  hashimemo new "texto"
-                </code>{" "}
-                no terminal — o rail atualiza na hora.
-              </p>
+              className={`relative z-10 flex shrink-0 touch-none items-center gap-1 rounded-full px-2.5 py-1 text-[0.7rem] font-medium transition-colors ${
+                tab === name
+                  ? "text-mauve"
+                  : "text-overlay0 hover:bg-surface0/70 hover:text-subtext1"
+              } ${groupDrag?.name === name ? "opacity-30" : ""}`}
+            >
+              {pinnedGroups[name] ? <span className="h-1 w-1 rounded-full bg-yellow" /> : null}
+              {name}
+            </button>
+          </Fragment>
+        ))}
+        {groupDrag && groupDrag.index >= groups.length && (
+          <span className="h-4 w-[2px] shrink-0 self-center rounded bg-mauve" />
+        )}
+      </nav>
+
+      {focusMode ? (
+        <div className="flex min-h-0 flex-1">
+          <aside className="no-scrollbar w-[360px] shrink-0 overflow-y-auto border-r border-surface0/70 px-2.5 py-2.5">
+            <div key={tab} ref={listRef} className={`flex flex-col gap-2 list-${slide}`}>
+              {cards}
+            </div>
+          </aside>
+          <section className="relative flex min-h-0 flex-1 flex-col">
+            {draft ? (
+              editorNode(true)
+            ) : (
+              <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center">
+                <div className="max-w-xs">
+                  <p className="text-sm text-subtext0">Nenhuma nota aberta</p>
+                  <p className="mt-1 text-xs leading-relaxed text-overlay0">
+                    Clique numa nota à esquerda para editar aqui.
+                  </p>
+                  <div className="mt-3 flex justify-center gap-2 text-xs">
+                    <button
+                      onClick={() => void createNote()}
+                      className="rounded-md bg-surface0/70 px-2 py-1 text-subtext1 transition hover:bg-surface1"
+                    >
+                      nova nota
+                    </button>
+                    <button
+                      onClick={goRail}
+                      className="rounded-md bg-surface0/70 px-2 py-1 text-subtext1 transition hover:bg-surface1"
+                    >
+                      ← rail
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      ) : (
+        <main
+          className={
+            maxMode
+              ? "mx-auto w-full max-w-3xl flex-1 overflow-y-auto px-5 py-4"
+              : "flex-1 overflow-y-auto px-2.5 py-2.5"
+          }
+        >
+          {maxMode && (
+            <div className="mb-3 flex items-center gap-2 text-xs text-overlay0">
+              <button
+                onClick={goRail}
+                className="rounded bg-surface0/70 px-2 py-1 text-subtext1 transition hover:bg-surface1"
+              >
+                ← rail
+              </button>
+              <span>maximizado</span>
+              {win.hyprland && <span className="text-sapphire">hyprland</span>}
             </div>
           )}
-        </div>
-      </main>
+          <div key={tab} ref={listRef} className={`flex flex-col gap-2 list-${slide}`}>
+            {cards}
+          </div>
+        </main>
+      )}
 
       <footer className="flex items-center gap-2 border-t border-surface0/70 px-3 py-1.5 text-[0.65rem] text-overlay0">
         <span className="flex items-center gap-1.5">
@@ -1089,37 +2088,76 @@ export default function App() {
         </span>
         <span className="text-surface2">·</span>
         <span>{ordered.length} notas</span>
-        {win.monitors > 1 && (
+        <div className="ml-auto flex items-center gap-1">
           <button
-            onClick={() => void cycleMonitor()}
-            disabled={busy}
-            title="Mover para a outra tela"
-            className="flex items-center gap-1 rounded px-1 py-0.5 transition hover:bg-surface0 hover:text-text disabled:opacity-50"
+            onClick={() =>
+              setSort((current) =>
+                current === "new" ? "old" : current === "old" ? "custom" : "new",
+              )
+            }
+            title={
+              sort === "new"
+                ? "Recentes no topo"
+                : sort === "old"
+                  ? "Antigas no topo"
+                  : "Ordem personalizada"
+            }
+            className="rounded p-1 transition hover:bg-surface0 hover:text-text"
           >
-            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.4">
-              <rect x="1.5" y="3" width="8" height="10" rx="1.2" />
-              <rect x="10.5" y="3" width="4" height="10" rx="1.2" />
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6">
+              {sort === "new" ? (
+                <path d="M8 13V3M4 7l4-4 4 4" />
+              ) : sort === "old" ? (
+                <path d="M8 3v10M4 9l4 4 4-4" />
+              ) : (
+                <>
+                  <path d="M4 5h8M4 11h8" />
+                  <path d="M6 3v4M10 9v4" opacity="0.7" />
+                </>
+              )}
             </svg>
-            tela
           </button>
-        )}
-        <span className="ml-auto tabular-nums">v0.3.0</span>
+          {win.monitors > 1 && (
+            <button
+              onClick={() => void cycleMonitor()}
+              disabled={busy}
+              title="Mover para a outra tela"
+              className="rounded p-1 transition hover:bg-surface0 hover:text-text disabled:opacity-50"
+            >
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.4">
+                <rect x="1.5" y="3" width="8" height="10" rx="1.2" />
+                <rect x="10.5" y="3" width="4" height="10" rx="1.2" />
+              </svg>
+            </button>
+          )}
+        </div>
       </footer>
 
-      {draft && (
+      {groupDrag && (
+        <div
+          className="drag-ghost pointer-events-none fixed z-[60] -translate-y-1/2 rounded-full bg-mauve px-2.5 py-1 text-[0.7rem] font-medium text-crust shadow-lg"
+          style={{ left: groupDrag.x + 12, top: groupDrag.y }}
+        >
+          {groupDrag.name}
+        </div>
+      )}
+
+      {noteDrag && (
+        <div
+          className="drag-ghost pointer-events-none fixed z-[60] max-w-[220px] -translate-y-1/2 truncate rounded-md border border-mauve/60 bg-mantle/95 px-2 py-1 text-xs font-medium text-text shadow-lg"
+          style={{ left: Math.min(noteDrag.x + 14, window.innerWidth - 230), top: noteDrag.y }}
+        >
+          {noteDrag.label}
+        </div>
+      )}
+
+      {draft && !focusMode && (
         <>
-          <Editor
-            note={draft}
-            groups={groups}
-            onChange={applyDraft}
-            onClose={closeEditor}
-            onDelete={remove}
-            onCapture={capture}
-            indent={railBlocked}
-          />
+          {editorNode(false)}
           {notice && (
-            <div className="absolute inset-x-0 bottom-0 z-30 border-t border-red/40 bg-red/10 px-3 py-2 text-xs text-red">
-              {notice}
+            <div className="absolute inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t border-red/40 bg-red/10 px-3 py-2 text-xs text-red">
+              <Kami size={16} pose="confuso" />
+              <span>{notice}</span>
             </div>
           )}
           {conflict && (
@@ -1160,16 +2198,98 @@ export default function App() {
           settings={settings}
           notesPath={notesPath}
           hidden={notes.filter((note) => note.hidden)}
+          pin={pin}
           onChange={persist}
           onUnhide={(note) => void toggleHidden(note)}
-          onClose={() => setPanel(false)}
+          onOpenNote={(note) => {
+            setPanel(false);
+            open(note);
+          }}
+          onPin={(mode) => setPinDialog({ mode })}
+          onLock={() => void lockNotes()}
+          onClose={closeSettings}
+        />
+      )}
+
+      {groupMenu && (
+        <GroupMenu
+          name={groupMenu.name}
+          count={notes.filter((note) => note.group.trim() === groupMenu.name).length}
+          pinned={Boolean(pinnedGroups[groupMenu.name])}
+          x={groupMenu.x}
+          y={groupMenu.y}
+          onPin={() => pinGroup(groupMenu.name)}
+          onMove={(delta) => shiftGroup(groupMenu.name, delta)}
+          onClear={() => clearGroup(groupMenu.name)}
+          onDelete={() => deleteGroup(groupMenu.name)}
+          onClose={() => setGroupMenu(null)}
+        />
+      )}
+
+      {confirmAction && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-crust/70 px-4 backdrop-blur-sm">
+          <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl pop-enter">
+            <p className="text-sm font-semibold">{confirmAction.title}</p>
+            <p className="mt-1 break-words text-xs leading-relaxed text-subtext0">
+              {confirmAction.body}
+            </p>
+            <div className="mt-3 flex justify-end gap-2 text-xs">
+              <button
+                onClick={() => setConfirmAction(null)}
+                className="rounded-md px-2.5 py-1.5 text-subtext1 transition hover:bg-surface0"
+              >
+                cancelar
+              </button>
+              <button
+                onClick={confirmAction.run}
+                className="rounded-md bg-red/90 px-2.5 py-1.5 font-medium text-crust transition hover:bg-red"
+              >
+                confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {welcome && (
+        <div className="pointer-events-none absolute inset-0 z-[80] flex items-center justify-center bg-base/80 backdrop-blur-[2px] welcome-fade">
+          <Kami size={120} pose="comemorando" className="welcome-pop" />
+        </div>
+      )}
+
+      {flash && (
+        <div className="pointer-events-none absolute inset-0 z-[65] flex items-center justify-center bg-crust/45 backdrop-blur-[2px] pop-enter">
+          <div className="flex flex-col items-center gap-2">
+            <div className="relative">
+              <Kami size={92} pose={flash.open ? "feliz" : "bloqueado"} />
+              <span className="padlock-snap absolute right-0 -bottom-1">
+                <Padlock open={flash.open} size={26} />
+              </span>
+            </div>
+            <span className="text-xs text-subtext0">{flash.label}</span>
+          </div>
+        </div>
+      )}
+
+      {pinDialog && (
+        <PinDialog
+          mode={pinDialog.mode}
+          error={pinError}
+          onSubmit={(value, next) => void submitPin(value, next)}
+          onClose={() => {
+            setPinDialog(null);
+            setPinError("");
+          }}
         />
       )}
 
       {pending && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-crust/70 px-4 backdrop-blur-sm">
-          <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl level-enter">
-            <p className="text-sm font-semibold">Excluir nota?</p>
+          <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl pop-enter">
+            <div className="flex items-center gap-2">
+              <Kami size={34} pose="descartando" />
+              <p className="text-sm font-semibold">Excluir nota?</p>
+            </div>
             <p className="mt-1 break-words text-xs leading-relaxed text-subtext0">
               {pending.title || "Sem título"} — o arquivo é removido da pasta de notas.
             </p>

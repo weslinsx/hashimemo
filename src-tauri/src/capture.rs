@@ -1,3 +1,4 @@
+//! Captura da janela ativa (GDI), grava PNG em media/ e devolve app/título/URL.
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
@@ -85,17 +86,34 @@ mod platform {
             if !foreground.0.is_null() && foreground.0 as isize != own {
                 return Ok(foreground);
             }
-        }
-        let mut current = unsafe { GetTopWindow(None) }.ok();
-        while let Some(hwnd) = current {
-            if hwnd.0.is_null() {
-                break;
-            }
-            unsafe {
+            let own_pid = windows::Win32::System::Threading::GetCurrentProcessId();
+            let mut current = GetTopWindow(None).ok();
+            while let Some(hwnd) = current {
+                if hwnd.0.is_null() {
+                    break;
+                }
                 let visible =
                     windows::Win32::UI::WindowsAndMessaging::IsWindowVisible(hwnd).as_bool();
+                let mut pid = 0u32;
+                GetWindowThreadProcessId(hwnd, Some(&mut pid));
                 let title = title_of(hwnd);
-                if visible && hwnd.0 as isize != own && !title.is_empty() && title != "HashiMemo" {
+                let mut frame = RECT::default();
+                let measured = DwmGetWindowAttribute(
+                    hwnd,
+                    DWMWA_EXTENDED_FRAME_BOUNDS,
+                    &mut frame as *mut RECT as *mut _,
+                    size_of::<RECT>() as u32,
+                )
+                .is_ok();
+                let big = measured
+                    && frame.right - frame.left >= 200
+                    && frame.bottom - frame.top >= 150;
+                if visible
+                    && pid != own_pid
+                    && big
+                    && !title.is_empty()
+                    && title != "Program Manager"
+                {
                     return Ok(hwnd);
                 }
                 current = GetWindow(hwnd, GW_HWNDNEXT).ok();
