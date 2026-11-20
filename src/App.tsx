@@ -1154,6 +1154,7 @@ export default function App() {
     reload();
     const unlisten = listen("notes:changed", () => reload());
     const collapse = listen("app:collapse", () => {
+      minimizing.current = true;
       setCollapsing(true);
     });
     const expand = listen("app:expand", () => {
@@ -1239,6 +1240,16 @@ export default function App() {
 
   const restoreFocus = useRef(false);
   const levelRef = useRef(win.level);
+  const minimizing = useRef(false);
+
+  useEffect(() => {
+    if (document.visibilityState === "visible") minimizing.current = false;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") minimizing.current = false;
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
 
   useEffect(() => {
     levelRef.current = win.level;
@@ -1248,6 +1259,9 @@ export default function App() {
     const current = getCurrentWindow();
     const unlisten = current.onFocusChanged(({ payload: focused }) => {
       if (!focused && levelRef.current === "Focus") {
+        // minimizar esconde a janela e dispara a perda de foco: nesse caso NÃO voltar
+        // para Docked, senão o AppBar reserva a faixa de 360 px e a bolinha nasce em 1476.
+        if (minimizing.current || document.visibilityState !== "visible") return;
         restoreFocus.current = true;
         void setLevel("Docked");
       } else if (focused && restoreFocus.current) {
@@ -1947,6 +1961,7 @@ export default function App() {
           </button>
           <button
             onClick={() => {
+              minimizing.current = true;
               setCollapsing(true);
               window.setTimeout(() => void invoke("minimize_to_bubble").catch(() => {}), 250);
             }}

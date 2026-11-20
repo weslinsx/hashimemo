@@ -256,6 +256,21 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
         _ => default_target(&main),
     };
     let target = snap_to_edge(&ball, base);
+    let monitor_info = main.current_monitor().ok().flatten().map(|m| {
+        let pos = m.position();
+        let size = m.size();
+        let work = m.work_area();
+        format!(
+            "pos={:?} size={:?} work={:?}/{:?}",
+            (pos.x, pos.y),
+            (size.width, size.height),
+            (work.position.x, work.position.y),
+            (work.size.width, work.size.height)
+        )
+    });
+    crate::window::dbg(&format!(
+        "minimize base={base:?} target={target:?} mon={monitor_info:?}"
+    ));
     // Esconde o rail e SÓ DEPOIS mostra a bolinha. Sem fade: o retângulo com
     // opacidade parcial ficava visível como bloco preto.
     let _ = main.hide();
