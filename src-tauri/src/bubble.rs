@@ -20,7 +20,6 @@ const SNAP_DELAY_MS: u64 = 320;
 const MENU_WIDTH: u32 = 188;
 const MENU_HEIGHT: u32 = 158;
 
-static PLACED: Mutex<bool> = Mutex::new(false);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static BEFORE_MENU: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 static SETTLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -28,12 +27,6 @@ static DRAGGING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::
 
 fn bubble(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(LABEL)
-}
-
-fn mark_placed() {
-    if let Ok(mut placed) = PLACED.lock() {
-        *placed = true;
-    }
 }
 
 fn snapshot(app: &AppHandle) -> Option<settings::Settings> {
@@ -58,8 +51,7 @@ fn save_position(app: &AppHandle, x: i32, y: i32) {
     settings::save(app, &next);
 }
 
-fn on_monitor(main: &WebviewWindow, monitor: &tauri::Monitor, x: i32, y: i32) -> bool {
-    let _ = main;
+fn on_monitor(monitor: &tauri::Monitor, x: i32, y: i32) -> bool {
     let position = monitor.position();
     let size = monitor.size();
     x >= position.x
@@ -131,7 +123,6 @@ fn snap(app: &AppHandle, window: &WebviewWindow) {
         .unwrap_or((0, (position.x, position.y)));
     save_position(app, x, y);
     slide_position(window.clone(), (position.x, position.y), (x, y));
-    mark_placed();
 }
 
 fn schedule_snap(app: AppHandle, window: WebviewWindow) {
@@ -149,6 +140,8 @@ fn schedule_snap(app: AppHandle, window: WebviewWindow) {
 
 pub fn init(app: &AppHandle) {
     let Some(window) = bubble(app) else { return };
+    // Janela de overlay: não ativa ao clicar (o primeiro clique restaura, sem roubar o foco).
+    crate::window::win::set_no_activate(&window);
     let handle = app.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::Moved(_) = event {
@@ -249,28 +242,13 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
     let custom = snapshot(app).map(|settings| settings.bubble_custom).unwrap_or(false);
     let base = match stored {
         Some((x, y))
-            if custom && docked.as_ref().is_some_and(|monitor| on_monitor(&main, monitor, x, y)) =>
+            if custom && docked.as_ref().is_some_and(|monitor| on_monitor(monitor, x, y)) =>
         {
             (x, y)
         }
         _ => default_target(&main),
     };
     let target = snap_to_edge(&ball, base);
-    let monitor_info = main.current_monitor().ok().flatten().map(|m| {
-        let pos = m.position();
-        let size = m.size();
-        let work = m.work_area();
-        format!(
-            "pos={:?} size={:?} work={:?}/{:?}",
-            (pos.x, pos.y),
-            (size.width, size.height),
-            (work.position.x, work.position.y),
-            (work.size.width, work.size.height)
-        )
-    });
-    crate::window::dbg(&format!(
-        "minimize base={base:?} target={target:?} mon={monitor_info:?}"
-    ));
     // Esconde o rail e SÓ DEPOIS mostra a bolinha. Sem fade: o retângulo com
     // opacidade parcial ficava visível como bloco preto.
     let _ = main.hide();
@@ -280,7 +258,6 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
     let _ = ball.set_size(PhysicalSize::new(SIZE, SIZE));
     let _ = ball.set_position(PhysicalPosition::new(target.0, target.1));
     save_position(app, target.0, target.1);
-    mark_placed();
     let _ = ball.show();
     let _ = app.emit_to(LABEL, "bubble:show", ());
     std::thread::spawn(|| {
@@ -328,7 +305,6 @@ pub fn reset(app: &AppHandle) {
         .unwrap_or(target);
     save_position(app, target.0, target.1);
     slide_position(ball, from, target);
-    mark_placed();
 }
 
 #[tauri::command]
@@ -405,7 +381,6 @@ pub fn bubble_throw(app: AppHandle, vx: f64, vy: f64) {
     // Magnético: depois da inércia, encosta na borda mais próxima.
     let target = snap_to_edge(&window, (x.round() as i32, y.round() as i32));
     save_position(&app, target.0, target.1);
-    mark_placed();
     let handle = app.clone();
     std::thread::spawn(move || {
         let steps = 18u32;

@@ -5,7 +5,7 @@ mod anim;
 mod appbar;
 #[cfg(target_os = "linux")]
 mod hypr;
-mod win;
+pub(crate) mod win;
 
 use std::{
     path::PathBuf,
@@ -219,20 +219,6 @@ fn motion_ms(app: &AppHandle) -> u64 {
         .unwrap_or(320)
 }
 
-pub fn dbg(msg: &str) {
-    use std::io::Write;
-    if std::env::var("HASHIMEMO_TEST").is_err() {
-        return;
-    }
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(std::env::temp_dir().join("hashimemo-debug.log"))
-    {
-        let _ = writeln!(file, "{}", msg);
-    }
-}
-
 fn apply(
     app: &AppHandle,
     window: &WebviewWindow,
@@ -252,14 +238,8 @@ fn apply(
     state.generation.fetch_add(1, Ordering::SeqCst);
     let rail = docked && level == Level::Docked;
     let duration = motion_ms(app);
-    dbg(&format!(
-        "apply {level:?} docked={docked} rail={rail} work={}..{}",
-        work_area(window, monitor.as_deref()).x,
-        work_area(window, monitor.as_deref()).x + work_area(window, monitor.as_deref()).w as i32
-    ));
 
     if !rail {
-        dbg("apply: release da banda");
         // `release` já faz ABM_REMOVE e restaura a work area; forçar SPI_SETWORKAREA aqui
         // podia reabrir a faixa de 360 px (o bloco preto ao minimizar saindo do Foco).
         appbar::release(window);
@@ -312,7 +292,6 @@ fn apply(
         let _ = app.emit_to(WINDOW_LABEL, "window:level", ());
         dissolve_place(window, target);
         if let Some((left, top, right, bottom)) = band {
-            dbg("apply: reserve");
             appbar::reserve(window, left, top, right, bottom);
             settle(window.clone(), target, state.generation.clone());
         }
@@ -351,35 +330,6 @@ fn dissolve_place(window: &WebviewWindow, target: Rect) {
         std::thread::sleep(std::time::Duration::from_millis(28));
     }
     win::set_opacity(window, 255);
-}
-
-pub fn trace_loop(app: AppHandle) {
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
-                continue;
-            };
-            let Some(state) = app.try_state::<AppState>() else {
-                continue;
-            };
-            let level = state.inner.lock().map(|inner| inner.level).unwrap_or_default();
-            let visible = window.is_visible().unwrap_or(false);
-            let work = work_area(&window, None);
-            let ball = app
-                .get_webview_window("bubble")
-                .map(|b| {
-                    let pos = b.outer_position().map(|p| (p.x, p.y)).unwrap_or((0, 0));
-                    format!("{},{},vis={}", pos.0, pos.1, b.is_visible().unwrap_or(false))
-                })
-                .unwrap_or_default();
-            dbg(&format!(
-                "trace {level:?} main={visible} work={}..{} bubble={ball}",
-                work.x,
-                work.x + work.w as i32
-            ));
-        }
-    });
 }
 
 pub fn set_level_by_app(app: &AppHandle, level: Level) {

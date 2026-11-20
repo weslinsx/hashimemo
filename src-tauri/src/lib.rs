@@ -164,7 +164,6 @@ pub fn run() {
             tray(handle)?;
             hotkey(handle)?;
             if std::env::var("HASHIMEMO_TEST").is_ok() {
-                window::trace_loop(handle.clone());
                 let cases = [
                     (Code::Digit1, 0u8),
                     (Code::Digit2, 1),

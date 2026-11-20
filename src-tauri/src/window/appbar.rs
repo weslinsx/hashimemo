@@ -68,9 +68,6 @@ mod imp {
     }
 
     pub fn reserve(window: &WebviewWindow, left: i32, top: i32, right: i32, bottom: i32) {
-        crate::window::dbg(&format!(
-            "appbar::reserve l={left} t={top} r={right} b={bottom}"
-        ));
         let Some(hwnd) = hwnd(window) else { return };
         let band = (left, top, right, bottom);
         let mut previous = BAND.lock().ok().map(|mut slot| slot.replace(band)).flatten();
@@ -102,10 +99,6 @@ mod imp {
     }
 
     pub fn release(window: &WebviewWindow) {
-        crate::window::dbg(&format!(
-            "appbar::release band={:?}",
-            BAND.lock().ok().and_then(|slot| *slot)
-        ));
         let previous = BAND.lock().ok().and_then(|mut slot| slot.take());
         let Some(band) = previous else { return };
         if let Some(hwnd) = hwnd(window) {
