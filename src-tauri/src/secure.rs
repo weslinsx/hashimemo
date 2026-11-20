@@ -11,12 +11,10 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 const NONCE_LEN: usize = 12;
 const SALT_LEN: usize = 16;
 
-pub fn new_salt() -> String {
+pub fn new_salt() -> Option<String> {
     let mut salt = [0u8; SALT_LEN];
-    if getrandom::fill(&mut salt).is_err() {
-        salt = [7u8; SALT_LEN];
-    }
-    STANDARD.encode(salt)
+    getrandom::fill(&mut salt).ok()?;
+    Some(STANDARD.encode(salt))
 }
 
 pub fn derive(pin: &str, salt: &str) -> Option<[u8; 32]> {

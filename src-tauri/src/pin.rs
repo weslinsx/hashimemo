@@ -66,7 +66,7 @@ pub fn pin_create(
     if next.pin_check.is_some() {
         return Err("PIN já existe".into());
     }
-    let salt = secure::new_salt();
+    let salt = secure::new_salt().ok_or("falha ao gerar sal")?;
     let key = secure::derive(&pin, &salt).ok_or("falha ao derivar a chave")?;
     next.pin_salt = Some(salt);
     next.pin_check = Some(secure::encrypt(&key, "hashimemo").ok_or("falha ao cifrar")?);
@@ -150,7 +150,7 @@ pub fn pin_change(
         return Err("PIN atual incorreto".into());
     }
 
-    let new_salt = secure::new_salt();
+    let new_salt = secure::new_salt().ok_or("falha ao gerar sal")?;
     let new_key = secure::derive(&new, &new_salt).ok_or("falha ao derivar a chave")?;
     notes.reencrypt_all(&old_key, &new_key)?;
     next.pin_salt = Some(new_salt);
