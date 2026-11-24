@@ -439,6 +439,8 @@ function Editor({
   onCapture,
   onError,
   onSave,
+  autosave = true,
+  dirty = false,
   indent = false,
   inline = false,
 }: {
@@ -450,6 +452,8 @@ function Editor({
   onCapture: () => Promise<Capture | null>;
   onError?: (message: string) => void;
   onSave: () => void;
+  autosave?: boolean;
+  dirty?: boolean;
   indent?: boolean;
   inline?: boolean;
 }) {
@@ -587,7 +591,9 @@ function Editor({
           >
             {raw ? "editor" : "md"}
           </button>
-          <span>autosave</span>
+          <span className={dirty ? "text-yellow" : "text-overlay0"}>
+            {autosave ? (dirty ? "salvando…" : "autosave") : dirty ? "não salvo" : "manual"}
+          </span>
         </div>
       </div>
     </div>
@@ -1155,6 +1161,7 @@ export default function App() {
   } | null>(null);
   const skipClick = useRef(false);
   const saved = useRef<string>("");
+  const discarding = useRef(false);
   const tabsRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -1302,25 +1309,42 @@ export default function App() {
     };
   }, [draft]);
 
-  const open = useCallback(
+  const openNow = useCallback(
     (note: Note, expand = false) => {
-      if (draft && draft.id !== note.id && JSON.stringify(draft) !== saved.current) {
-        void invoke("update_note", { note: draft }).catch(() => {});
-      }
       saved.current = JSON.stringify(note);
       setDraft(note);
       setConflict(null);
       if (expand && win.level === "Docked") void setLevel("Focus");
     },
-    [draft, setLevel, win.level],
+    [setLevel, win.level],
+  );
+
+  // Trocar de nota com alteração pendente: autosave salva; modo manual pergunta.
+  const open = useCallback(
+    (note: Note, expand = false) => {
+      if (!draft || draft.id === note.id || JSON.stringify(draft) === saved.current) {
+        return openNow(note, expand);
+      }
+      if (settings.autosave) {
+        void invoke("update_note", { note: draft }).catch(() => {});
+        return openNow(note, expand);
+      }
+      setSaveAsk({ run: () => openNow(note, expand) });
+    },
+    [draft, openNow, settings.autosave],
   );
 
   const closeEditor = useCallback(() => {
     setDraft(null);
     setConflict(null);
-    setNotes((current) => current.map((note) => (draft && note.id === draft.id ? draft : note)));
     setReturnToPanel(false);
-  }, [draft]);
+    if (discarding.current) {
+      discarding.current = false;
+      reload();
+      return;
+    }
+    setNotes((current) => current.map((note) => (draft && note.id === draft.id ? draft : note)));
+  }, [draft, reload]);
 
   // Saída da edição com alteração pendente: pergunta antes de descartar.
   const requestClose = useCallback(
@@ -1527,8 +1551,12 @@ export default function App() {
     setConflict(null);
     setMenu(null);
     setReturnToPanel(false);
+    if (discarding.current) {
+      discarding.current = false;
+      reload();
+    }
     void setLevel("Docked");
-  }, [setLevel]);
+  }, [reload, setLevel]);
 
   const recolor = useCallback(
     async (note: Note, color: string) => {
@@ -1596,8 +1624,8 @@ export default function App() {
       if (confirmAction) return setConfirmAction(null);
       if (menu) return setMenu(null);
       if (pending) return setPending(null);
-      if (panel) return closeSettings();
       if (draft) return requestClose(closeEditor);
+      if (panel) return closeSettings();
       if (win.level !== "Docked") void setLevel("Docked");
     };
     window.addEventListener("keydown", onKey);
@@ -1877,6 +1905,8 @@ export default function App() {
         note={draft}
         groups={groups}
         onChange={applyDraft}
+        autosave={settings.autosave}
+        dirty={Boolean(draft && JSON.stringify(draft) !== saved.current)}
         onClose={() =>
           requestClose(() => {
             if (returnToPanel || (!focusMode && !inline)) closeEditor();
@@ -2280,11 +2310,11 @@ export default function App() {
       {saveAsk && (
         <div className="absolute inset-0 z-[60] flex items-center justify-center bg-crust/70 px-4 backdrop-blur-sm">
           <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl pop-enter">
-            <div className="flex items-center gap-2">
-              <Kami size={30} pose="confuso" />
+            <div className="flex flex-col items-center gap-2 text-center">
+              <Kami size={72} pose="confuso" />
               <p className="text-sm font-semibold">Salvar nota?</p>
             </div>
-            <p className="mt-1 text-xs leading-relaxed text-subtext0">
+            <p className="mt-2 text-center text-xs leading-relaxed text-subtext0">
               As alterações desta nota ainda não foram salvas.
             </p>
             <div className="mt-3 flex justify-end gap-2 text-xs">
@@ -2298,6 +2328,7 @@ export default function App() {
                 onClick={() => {
                   const run = saveAsk.run;
                   setSaveAsk(null);
+                  discarding.current = true;
                   run();
                 }}
                 className="rounded bg-red/15 px-2 py-1 text-red transition hover:bg-red/25"
