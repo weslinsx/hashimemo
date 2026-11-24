@@ -100,7 +100,7 @@ fn tray(app: &AppHandle) -> tauri::Result<()> {
             }
         });
 
-    if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")) {
+    if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")) {
         builder = builder.icon(icon);
     }
 
