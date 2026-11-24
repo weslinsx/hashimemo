@@ -48,6 +48,7 @@ type Note = {
   pinned: boolean;
   hidden: boolean;
   protected: boolean;
+  autosave?: boolean | null;
   remind_at: string;
   created: string;
   updated: string;
@@ -439,6 +440,7 @@ function Editor({
   onCapture,
   onError,
   onSave,
+  onToggleAutosave,
   autosave = true,
   dirty = false,
   indent = false,
@@ -452,6 +454,7 @@ function Editor({
   onCapture: () => Promise<Capture | null>;
   onError?: (message: string) => void;
   onSave: () => void;
+  onToggleAutosave: () => void;
   autosave?: boolean;
   dirty?: boolean;
   indent?: boolean;
@@ -591,9 +594,30 @@ function Editor({
           >
             {raw ? "editor" : "md"}
           </button>
-          <span className={dirty ? "text-yellow" : "text-overlay0"}>
-            {autosave ? (dirty ? "salvando…" : "autosave") : dirty ? "não salvo" : "manual"}
-          </span>
+          <button
+            onClick={onToggleAutosave}
+            title={
+              autosave
+                ? "Autosave ligado nesta nota — clique para desligar"
+                : "Autosave desligado nesta nota — clique para ligar"
+            }
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 transition hover:bg-surface0 hover:text-text"
+          >
+            <span
+              className={`relative h-2.5 w-5 rounded-full transition-colors ${
+                autosave ? "bg-mauve/70" : "bg-surface1"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-1.5 w-1.5 rounded-full transition-all ${
+                  autosave ? "left-3 bg-mauve" : "left-0.5 bg-overlay1"
+                }`}
+              />
+            </span>
+            <span className={dirty ? "text-yellow" : ""}>
+              {dirty ? (autosave ? "salvando…" : "não salvo") : "autosave"}
+            </span>
+          </button>
         </div>
       </div>
     </div>
@@ -1325,7 +1349,7 @@ export default function App() {
       if (!draft || draft.id === note.id || JSON.stringify(draft) === saved.current) {
         return openNow(note, expand);
       }
-      if (settings.autosave) {
+      if (draft.autosave ?? settings.autosave) {
         void invoke("update_note", { note: draft }).catch(() => {});
         return openNow(note, expand);
       }
@@ -1582,7 +1606,7 @@ export default function App() {
   const applyDraft = useCallback(
     (next: Note) => {
       setDraft(next);
-      if (!settings.autosave || !next.id) return;
+      if (!(next.autosave ?? settings.autosave) || !next.id) return;
       void invoke<Note>("update_note", { note: next })
         .then((savedNote) => {
           saved.current = JSON.stringify(savedNote);
@@ -1605,12 +1629,42 @@ export default function App() {
   );
 
   useEffect(() => {
-    if (!draft || !settings.autosave) return;
-    if (!draft.id) return;
+    if (!draft || !draft.id) return;
+    if (!(draft.autosave ?? settings.autosave)) return;
     if (JSON.stringify(draft) === saved.current) return;
     const timer = setTimeout(() => applyDraft(draft), 700);
     return () => clearTimeout(timer);
   }, [applyDraft, draft, settings.autosave]);
+
+  const toggleAutosave = useCallback(() => {
+    if (!draft?.id) return;
+    const next = !(draft.autosave ?? settings.autosave);
+    let base: Note = draft;
+    try {
+      if (saved.current) base = { ...draft, ...(JSON.parse(saved.current) as Note) };
+    } catch {
+      base = draft;
+    }
+    setDraft({ ...draft, autosave: next });
+    void invoke<Note>("update_note", { note: { ...base, autosave: next } })
+      .then((written) => {
+        saved.current = JSON.stringify({
+          ...base,
+          autosave: next,
+          mtime: written.mtime,
+          updated: written.updated,
+        });
+        setDraft((current) =>
+          current && current.id === written.id
+            ? { ...current, mtime: written.mtime, updated: written.updated }
+            : current,
+        );
+      })
+      .catch((error) => {
+        setNotice(`erro ao salvar a preferência da nota: ${String(error)}`);
+        setTimeout(() => setNotice(""), 7000);
+      });
+  }, [draft, settings.autosave]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1905,7 +1959,8 @@ export default function App() {
         note={draft}
         groups={groups}
         onChange={applyDraft}
-        autosave={settings.autosave}
+        autosave={draft.autosave ?? settings.autosave}
+        onToggleAutosave={toggleAutosave}
         dirty={Boolean(draft && JSON.stringify(draft) !== saved.current)}
         onClose={() =>
           requestClose(() => {
