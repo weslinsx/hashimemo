@@ -241,7 +241,7 @@
       radial-gradient(circle at 22% 18%, rgb(255 255 255 / 0.55) 0 4%, rgb(255 255 255 / 0.12) 9%, transparent 22%),
       radial-gradient(circle at 78% 80%, rgb(137 180 250 / 0.42), transparent 52%),
       radial-gradient(circle at 26% 80%, rgb(245 194 231 / 0.42), transparent 55%),
-      radial-gradient(circle at 50% 50%, rgb(30 30 46 / 0.88), rgb(30 30 46 / 0.94) 74%);
+      radial-gradient(circle at 50% 50%, rgb(148 226 213 / 0.22), rgb(30 30 46 / 0.5) 74%);
     border: 1px solid rgb(255 255 255 / 0.55);
     box-shadow:
       inset 0 0 14px rgb(255 255 255 / 0.24),
@@ -361,8 +361,8 @@
 
   .kami-z {
     position: absolute;
-    right: 14px;
-    top: 24px;
+    right: 6px;
+    top: 6px;
     color: var(--color-subtext1);
     font-weight: 600;
     opacity: 0;
@@ -390,7 +390,7 @@
   }
 
   .hashi-prose p {
-    margin: 0 0 0.5rem;
+    margin: 0 0 1.35rem;
   }
 
   .hashi-prose p:last-child {
@@ -845,7 +845,7 @@
   }
   100% {
     opacity: 0;
-    transform: translate(6px, -12px) scale(1.05);
+    transform: translate(16px, -26px) scale(1.15);
   }
 }
 

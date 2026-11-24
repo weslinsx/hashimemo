@@ -16,8 +16,6 @@ use crate::settings::{self, SettingsState};
 const LABEL: &str = "bubble";
 const MARGIN: i32 = 14;
 const SIZE: u32 = 84;
-// círculo da região da janela: a bolha tem 64 px e cresce 3% no hover
-const DIAMETER: i32 = 70;
 const SNAP_DELAY_MS: u64 = 320;
 const MENU_WIDTH: u32 = 188;
 const MENU_HEIGHT: u32 = 158;
@@ -144,7 +142,7 @@ pub fn init(app: &AppHandle) {
     let Some(window) = bubble(app) else { return };
     // Janela de overlay: não ativa ao clicar (o primeiro clique restaura, sem roubar o foco).
     crate::window::win::set_no_activate(&window);
-    crate::window::win::keep_overlay(&window, DIAMETER);
+    crate::window::win::set_no_activate(&window);
     let handle = app.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::Moved(_) = event {
@@ -264,7 +262,7 @@ pub fn minimize(app: &AppHandle) -> Result<(), String> {
     save_position(app, target.0, target.1);
     let _ = ball.show();
     let _ = ball.set_skip_taskbar(true);
-    crate::window::win::keep_overlay(&ball, DIAMETER);
+    crate::window::win::set_no_activate(&ball);
     let _ = app.emit_to(LABEL, "bubble:show", ());
     std::thread::spawn(|| {
         std::thread::sleep(Duration::from_millis(700));
@@ -486,7 +484,6 @@ pub fn bubble_menu_open(app: AppHandle) -> Result<(), String> {
         *slot = Some((position.x, position.y));
     }
     let _ = window.set_size(PhysicalSize::new(MENU_WIDTH, MENU_HEIGHT));
-    crate::window::win::clear_region(&window);
     let _ = window.set_position(PhysicalPosition::new(x, y));
     Ok(())
 }
@@ -499,6 +496,6 @@ pub fn bubble_menu_close(app: AppHandle) {
     if let Some((x, y)) = previous {
         let _ = window.set_position(PhysicalPosition::new(x, y));
     }
-    crate::window::win::keep_overlay(&window, DIAMETER);
+    crate::window::win::set_no_activate(&window);
 }
 
