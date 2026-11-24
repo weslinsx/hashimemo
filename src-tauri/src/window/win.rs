@@ -160,3 +160,71 @@ pub fn set_no_activate(window: &WebviewWindow) {
 
 #[cfg(not(windows))]
 pub fn set_no_activate(_window: &WebviewWindow) {}
+
+// Overlay (bolinha): sempre no topo e com região circular — o quadrado da janela
+// não pinta nem captura clique; o que está fora do círculo atravessa para a janela de baixo.
+#[cfg(windows)]
+pub fn keep_overlay(window: &WebviewWindow, diameter: i32) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
+    };
+
+    let Ok(handle) = window.hwnd() else { return };
+    let hwnd = HWND(handle.0 as *mut _);
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+        // a bolha fica centralizada na janela: a região precisa acompanhar, senão
+        // o círculo encosta no canto e sobra o quadrado transparente em volta
+        let mut rect = windows::Win32::Foundation::RECT::default();
+        let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut rect);
+        let offset = (((rect.right - rect.left) - diameter) / 2).max(0);
+        let region = CreateRoundRectRgn(
+            offset,
+            offset,
+            offset + diameter + 1,
+            offset + diameter + 1,
+            diameter,
+            diameter,
+        );
+        let _ = SetWindowRgn(hwnd, Some(region), true);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn keep_overlay(_window: &WebviewWindow, _diameter: i32) {}
+
+// O menu da bolinha cresce a janela: sem remover a região ele fica cortado.
+#[cfg(windows)]
+pub fn clear_region(window: &WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Gdi::SetWindowRgn;
+    use windows::Win32::UI::WindowsAndMessaging::{HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos};
+
+    let Ok(handle) = window.hwnd() else { return };
+    let hwnd = HWND(handle.0 as *mut _);
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+        let _ = SetWindowRgn(hwnd, None, true);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn clear_region(_window: &WebviewWindow) {}
