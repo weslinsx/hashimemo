@@ -40,6 +40,9 @@ pub struct Note {
     pub remind_at: String,
     #[serde(default)]
     pub protected: bool,
+    /// `None` = segue o autosave global; `Some(false)`/`Some(true)` força na nota.
+    #[serde(default)]
+    pub autosave: Option<bool>,
     #[serde(skip)]
     pub secret_title: String,
     #[serde(skip)]
@@ -232,6 +235,7 @@ impl Store {
             hidden: flag(&map, "hidden"),
             remind_at: text(&map, "remind_at"),
             protected: flag(&map, "protected"),
+            autosave: map.get("autosave").and_then(|value| value.as_bool()),
             secret_title: text(&map, "secret_title"),
             secret_body: text(&map, "secret_body"),
             created: text(&map, "created"),
@@ -327,6 +331,9 @@ impl Store {
         head.insert(Value::from("hidden"), Value::from(note.hidden));
         head.insert(Value::from("remind_at"), Value::from(note.remind_at.clone()));
         head.insert(Value::from("protected"), Value::from(note.protected));
+        if let Some(autosave) = note.autosave {
+            head.insert(Value::from("autosave"), Value::from(autosave));
+        }
         if !note.secret_title.is_empty() {
             head.insert(Value::from("secret_title"), Value::from(note.secret_title.clone()));
         }
@@ -387,6 +394,7 @@ impl Store {
             hidden: false,
             remind_at: String::new(),
             protected: false,
+            autosave: None,
             secret_title: String::new(),
             secret_body: String::new(),
             created: created.clone(),
