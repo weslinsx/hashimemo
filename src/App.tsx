@@ -605,17 +605,17 @@ function Editor({
           >
             <span
               className={`relative h-2.5 w-5 rounded-full transition-colors ${
-                autosave ? "bg-mauve/70" : "bg-surface1"
+                autosave ? "bg-green/70" : "bg-surface1"
               }`}
             >
               <span
                 className={`absolute top-0.5 h-1.5 w-1.5 rounded-full transition-all ${
-                  autosave ? "left-3 bg-mauve" : "left-0.5 bg-overlay1"
+                  autosave ? "left-3 bg-green" : "left-0.5 bg-overlay1"
                 }`}
               />
             </span>
-            <span className={dirty ? "text-yellow" : ""}>
-              {dirty ? (autosave ? "salvando…" : "não salvo") : "autosave"}
+            <span className={autosave ? "text-green" : "text-overlay0"}>
+              autosave{dirty && <span className="text-yellow"> •</span>}
             </span>
           </button>
         </div>
@@ -1425,6 +1425,8 @@ export default function App() {
         pinned: draft.pinned,
         hidden: draft.hidden,
         remind_at: draft.remind_at,
+        // o on/off das Configurações é só o padrão da nota nova: grava explícito
+        autosave: draft.autosave ?? settings.autosave,
       };
       const savedNote = await invoke<Note>("update_note", { note: extra }).catch(() => created);
       saved.current = JSON.stringify(savedNote);
@@ -1445,7 +1447,7 @@ export default function App() {
     saved.current = JSON.stringify(savedNote);
     setDraft(savedNote);
     reload();
-  }, [draft, reload]);
+  }, [draft, reload, settings.autosave]);
 
   const remove = useCallback(async () => {
     if (!draft) return;
@@ -1637,8 +1639,12 @@ export default function App() {
   }, [applyDraft, draft, settings.autosave]);
 
   const toggleAutosave = useCallback(() => {
-    if (!draft?.id) return;
+    if (!draft) return;
     const next = !(draft.autosave ?? settings.autosave);
+    if (!draft.id) {
+      setDraft({ ...draft, autosave: next });
+      return;
+    }
     let base: Note = draft;
     try {
       if (saved.current) base = { ...draft, ...(JSON.parse(saved.current) as Note) };
