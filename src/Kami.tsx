@@ -1,4 +1,4 @@
-//! Mascote: 18 poses em PNG; cada pose tem uma classe de animação CSS (kami-*).
+//! Mascote: 27 poses em PNG; cada pose tem uma classe de animação CSS (kami-*).
 import idle from "./assets/kami/idle.png";
 import rosto from "./assets/kami/rosto.png";
 import espiando from "./assets/kami/espiando.png";
@@ -17,6 +17,15 @@ import confuso from "./assets/kami/confuso.png";
 import comemorando from "./assets/kami/comemorando.png";
 import favorito from "./assets/kami/favorito.png";
 import descartando from "./assets/kami/descartando.png";
+import salvando from "./assets/kami/salvando.png";
+import pensando from "./assets/kami/pensando.png";
+import triste from "./assets/kami/triste.png";
+import orgulhoso from "./assets/kami/orgulhoso.png";
+import acenando from "./assets/kami/acenando.png";
+import entediado from "./assets/kami/entediado.png";
+import lendoCarta from "./assets/kami/lendo-carta.png";
+import prancheta from "./assets/kami/prancheta.png";
+import comCafe from "./assets/kami/com-cafe.png";
 
 export type KamiPose =
   | "idle"
@@ -36,7 +45,16 @@ export type KamiPose =
   | "confuso"
   | "comemorando"
   | "favorito"
-  | "descartando";
+  | "descartando"
+  | "salvando"
+  | "pensando"
+  | "triste"
+  | "orgulhoso"
+  | "acenando"
+  | "entediado"
+  | "lendo-carta"
+  | "prancheta"
+  | "com-cafe";
 
 const SOURCE: Record<KamiPose, string> = {
   idle,
@@ -57,6 +75,15 @@ const SOURCE: Record<KamiPose, string> = {
   comemorando,
   favorito,
   descartando,
+  salvando,
+  pensando,
+  triste,
+  orgulhoso,
+  acenando,
+  entediado,
+  "lendo-carta": lendoCarta,
+  prancheta,
+  "com-cafe": comCafe,
 };
 
 const MOTION: Record<KamiPose, string> = {
@@ -78,6 +105,15 @@ const MOTION: Record<KamiPose, string> = {
   comemorando: "kami-hop",
   favorito: "kami-pulse",
   descartando: "kami-sad",
+  salvando: "kami-act",
+  pensando: "kami-breathe-slow",
+  triste: "kami-sad",
+  orgulhoso: "kami-hop",
+  acenando: "kami-act",
+  entediado: "kami-breathe-slow",
+  "lendo-carta": "kami-breathe-slow",
+  prancheta: "kami-act",
+  "com-cafe": "kami-breathe-slow",
 };
 
 export function Kami({
