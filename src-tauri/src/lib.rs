@@ -119,6 +119,11 @@ fn hotkey(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     std::panic::set_hook(Box::new(|info| {
@@ -223,7 +228,8 @@ pub fn run() {
             pin::pin_lock,
             pin::pin_change,
             pin::pin_remove,
-            capture::capture_window
+            capture::capture_window,
+            quit_app
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o HashiMemo")

@@ -261,7 +261,7 @@ impl Store {
             b.pinned
                 .cmp(&a.pinned)
                 .then(a.order.total_cmp(&b.order))
-                .then(b.updated.cmp(&a.updated))
+                .then(b.mtime.cmp(&a.mtime))
         });
         notes
     }

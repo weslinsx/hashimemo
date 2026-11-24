@@ -59,6 +59,7 @@ export function RichEditor({ value, onChange, onCapture, onError, onRemind, remi
   const capture = useRef(onCapture);
   const fail = useRef(onError);
   const [, force] = useState(0);
+  const api = useRef<TiptapEditor | null>(null);
 
   change.current = onChange;
   capture.current = onCapture;
@@ -74,12 +75,30 @@ export function RichEditor({ value, onChange, onCapture, onError, onRemind, remi
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false } }),
       Image.configure({ inline: false, allowBase64: false }),
-      Markdown.configure({ html: true, tightLists: true, linkify: false, breaks: false }),
+      // breaks: true — quebra simples de linha é conteúdo, não espaço. Sem isso, nota escrita
+      // fora do app (CLI/agente) perde as quebras no round-trip markdown -> editor -> markdown.
+      Markdown.configure({ html: true, tightLists: true, linkify: false, breaks: true }),
     ],
     content: value,
     editorProps: {
       attributes: {
         class: "hashi-prose flex-1 overflow-y-auto px-2.5 py-2 text-sm leading-relaxed outline-none",
+      },
+      // Atalhos no próprio ProseMirror: roda antes do keymap e do handler da janela.
+      handleKeyDown: (_view, event) => {
+        const instance = api.current;
+        if (!instance || !(event.ctrlKey || event.metaKey) || event.altKey) return false;
+        const key = event.key.toLowerCase();
+        const chain = () => instance.chain().focus();
+        if (key === "b") chain().toggleBold().run();
+        else if (key === "i") chain().toggleItalic().run();
+        else if (key === "u") chain().toggleUnderline().run();
+        else if (event.shiftKey && key === "x") chain().toggleStrike().run();
+        else if (event.shiftKey && key === "8") chain().toggleBulletList().run();
+        else if (event.shiftKey && key === "7") chain().toggleOrderedList().run();
+        else return false;
+        event.preventDefault();
+        return true;
       },
       handlePaste: (view, event) => {
         const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
@@ -105,7 +124,10 @@ export function RichEditor({ value, onChange, onCapture, onError, onRemind, remi
         return true;
       },
     },
-    onCreate: ({ editor: instance }) => enableDrag(instance),
+    onCreate: ({ editor: instance }) => {
+      api.current = instance;
+      enableDrag(instance);
+    },
     onUpdate: ({ editor: instance }) => {
       enableDrag(instance);
       const markdown = (instance.storage as unknown as { markdown: { getMarkdown(): string } })
@@ -132,36 +154,6 @@ export function RichEditor({ value, onChange, onCapture, onError, onRemind, remi
     if (editor.isFocused) return;
     editor.commands.setContent(value, { emitUpdate: false });
   }, [editor, value]);
-
-  useEffect(() => {
-    if (!editor) return;
-    const dom = editor.view.dom;
-    const onKey = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-      const key = event.key.toLowerCase();
-      if (key === "b") {
-        event.preventDefault();
-        editor.chain().focus().toggleBold().run();
-      } else if (key === "i") {
-        event.preventDefault();
-        editor.chain().focus().toggleItalic().run();
-      } else if (key === "u") {
-        event.preventDefault();
-        editor.chain().focus().toggleUnderline().run();
-      } else if (event.shiftKey && key === "x") {
-        event.preventDefault();
-        editor.chain().focus().toggleStrike().run();
-      } else if (event.shiftKey && key === "8") {
-        event.preventDefault();
-        editor.chain().focus().toggleBulletList().run();
-      } else if (event.shiftKey && key === "7") {
-        event.preventDefault();
-        editor.chain().focus().toggleOrderedList().run();
-      }
-    };
-    dom.addEventListener("keydown", onKey);
-    return () => dom.removeEventListener("keydown", onKey);
-  }, [editor]);
 
   const shot = async () => {
     if (!editor) return;

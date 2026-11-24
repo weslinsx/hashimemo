@@ -130,14 +130,22 @@ pub fn set_no_activate(window: &WebviewWindow) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
         GWL_EXSTYLE, GetWindowLongPtrW, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-        SetWindowLongPtrW, SetWindowPos, WS_EX_NOACTIVATE,
+        SetWindowLongPtrW, SetWindowPos, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
     };
 
     let Ok(handle) = window.hwnd() else { return };
     let hwnd = HWND(handle.0 as *mut _);
     unsafe {
         let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE.0 as isize);
+        // NOACTIVATE: o clique não rouba o foco. TOOLWINDOW: tiling WM (GlazeWM, komorebi)
+        // e Alt+Tab ignoram a janela — sem isso o WM encaixa a bolinha na borda do tile.
+        // APPWINDOW sai: força presença na barra de tarefas e anula o TOOLWINDOW.
+        let keep = style & !(WS_EX_APPWINDOW.0 as isize);
+        SetWindowLongPtrW(
+            hwnd,
+            GWL_EXSTYLE,
+            keep | WS_EX_NOACTIVATE.0 as isize | WS_EX_TOOLWINDOW.0 as isize,
+        );
         let _ = SetWindowPos(
             hwnd,
             None,

@@ -135,16 +135,23 @@ function clock(iso: string): string {
   });
 }
 
-function relative(iso: string): string {
-  const when = Date.parse(iso);
-  if (Number.isNaN(when)) return "";
-  const minutes = Math.round((Date.now() - when) / 60000);
+function relativeAt(ms: number): string {
+  if (!ms) return "";
+  const minutes = Math.round((Date.now() - ms) / 60000);
   if (minutes < 1) return "agora";
   if (minutes < 60) return `há ${minutes} min`;
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `há ${hours} h`;
   const days = Math.round(hours / 24);
-  return days === 1 ? "ontem" : `há ${days} d`;
+  if (days === 1) return "ontem";
+  if (days < 7) return `há ${days} d`;
+  return new Date(ms).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function IconDock({ active }: { active: boolean }) {
@@ -244,7 +251,9 @@ function NoteCard({
             {clock(note.remind_at)}
           </span>
         )}
-        <span className="ml-auto tabular-nums">{relative(note.created)}</span>
+        <span className="ml-auto tabular-nums" title={`criada em ${clock(note.created)}`}>
+          {relativeAt(note.mtime)}
+        </span>
       </footer>
     </article>
   );
@@ -452,7 +461,7 @@ function Editor({
       className={
         inline
           ? "relative z-10 flex min-h-0 w-full flex-1 flex-col bg-base level-enter"
-          : `absolute inset-y-0 right-0 z-20 flex flex-col bg-base editor-enter ${
+          : `absolute inset-y-0 right-0 z-40 flex flex-col bg-base editor-enter ${
               indent ? "left-[360px] border-l border-surface0/70" : "left-0"
             }`
       }
@@ -471,7 +480,12 @@ function Editor({
         >
           salvar
         </button>
-        <span className="ml-auto text-[0.65rem] text-overlay0">{relative(note.updated)}</span>
+        <span
+          className="ml-auto truncate text-[0.65rem] tabular-nums text-overlay0"
+          title={`criada em ${clock(note.created)} · alterada ${relativeAt(note.mtime)}`}
+        >
+          criada {clock(note.created)}
+        </span>
         <button
           onClick={() => onChange({ ...note, pinned: !note.pinned })}
           title={note.pinned ? "Desafixar" : "Fixar no topo"}
@@ -1080,6 +1094,8 @@ export default function App() {
   const [draft, setDraft] = useState<Note | null>(null);
   const [conflict, setConflict] = useState<Note | null>(null);
   const [panel, setPanel] = useState(false);
+  const [returnToPanel, setReturnToPanel] = useState(false);
+  const [saveAsk, setSaveAsk] = useState<{ run: () => void } | null>(null);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState(() => localStorage.getItem("hashimemo.tab") ?? "Todos");
   const [menu, setMenu] = useState<{ note: Note; x: number; y: number } | null>(null);
@@ -1274,6 +1290,18 @@ export default function App() {
     };
   }, [setLevel]);
 
+  useEffect(() => {
+    const current = getCurrentWindow();
+    const unlisten = current.onCloseRequested((event) => {
+      if (!draft || JSON.stringify(draft) === saved.current) return;
+      event.preventDefault();
+      setSaveAsk({ run: () => void invoke("quit_app") });
+    });
+    return () => {
+      void unlisten.then((off) => off());
+    };
+  }, [draft]);
+
   const open = useCallback(
     (note: Note, expand = false) => {
       if (draft && draft.id !== note.id && JSON.stringify(draft) !== saved.current) {
@@ -1291,7 +1319,17 @@ export default function App() {
     setDraft(null);
     setConflict(null);
     setNotes((current) => current.map((note) => (draft && note.id === draft.id ? draft : note)));
+    setReturnToPanel(false);
   }, [draft]);
+
+  // Saída da edição com alteração pendente: pergunta antes de descartar.
+  const requestClose = useCallback(
+    (run: () => void) => {
+      if (draft && JSON.stringify(draft) !== saved.current) setSaveAsk({ run });
+      else run();
+    },
+    [draft],
+  );
 
   const createNote = useCallback(() => {
     const now = new Date().toISOString();
@@ -1488,6 +1526,7 @@ export default function App() {
     setDraft(null);
     setConflict(null);
     setMenu(null);
+    setReturnToPanel(false);
     void setLevel("Docked");
   }, [setLevel]);
 
@@ -1548,6 +1587,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (saveAsk) return setSaveAsk(null);
       if (pinDialog) {
         setPinDialog(null);
         return setPinError("");
@@ -1557,12 +1597,12 @@ export default function App() {
       if (menu) return setMenu(null);
       if (pending) return setPending(null);
       if (panel) return closeSettings();
-      if (draft) return closeEditor();
+      if (draft) return requestClose(closeEditor);
       if (win.level !== "Docked") void setLevel("Docked");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeEditor, confirmAction, draft, groupMenu, menu, panel, pending, pinDialog, setLevel, win.level]);
+  }, [closeEditor, confirmAction, draft, groupMenu, menu, panel, pending, pinDialog, requestClose, saveAsk, setLevel, win.level]);
 
   const visible = useMemo(() => notes.filter((note) => !note.hidden), [notes]);
 
@@ -1787,12 +1827,13 @@ export default function App() {
 
   const ordered = useMemo(() => {
     const list = tab === "Todos" ? visible : visible.filter((note) => note.group.trim() === tab);
-    const byCreated = (a: Note, b: Note) => a.created.localeCompare(b.created);
+    const byChanged = (a: Note, b: Note) =>
+      a.mtime - b.mtime || a.created.localeCompare(b.created);
     const byOrder =
       sort === "new"
-        ? (a: Note, b: Note) => byCreated(b, a)
+        ? (a: Note, b: Note) => byChanged(b, a)
         : sort === "old"
-          ? byCreated
+          ? byChanged
           : (a: Note, b: Note) => a.order - b.order;
     return [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned) || byOrder(a, b));
   }, [sort, tab, visible]);
@@ -1836,7 +1877,12 @@ export default function App() {
         note={draft}
         groups={groups}
         onChange={applyDraft}
-        onClose={focusMode || inline ? goRail : closeEditor}
+        onClose={() =>
+          requestClose(() => {
+            if (returnToPanel || (!focusMode && !inline)) closeEditor();
+            else goRail();
+          })
+        }
         onSave={() => void commitDraft()}
         onDelete={remove}
         onCapture={capture}
@@ -1899,7 +1945,11 @@ export default function App() {
       className={`app-root relative flex h-full flex-col bg-base text-text ${
         collapsing ? "app-collapsing" : ""
       } ${levelPop ? "level-pop" : ""} ${expanding ? "app-expanding" : ""}`}
-      onContextMenu={(event) => event.preventDefault()}
+      onContextMenu={(event) => {
+        // o menu nativo (copiar/colar) precisa funcionar dentro do editor
+        if ((event.target as HTMLElement).closest(".hashi-prose")) return;
+        event.preventDefault();
+      }}
     >
       <header
         {...(!win.docked || focused ? { "data-tauri-drag-region": true } : {})}
@@ -2217,13 +2267,56 @@ export default function App() {
           onChange={persist}
           onUnhide={(note) => void toggleHidden(note)}
           onOpenNote={(note) => {
-            setPanel(false);
+            // abre sobre as Configurações: "voltar" no editor retorna para elas
+            setReturnToPanel(true);
             open(note);
           }}
           onPin={(mode) => setPinDialog({ mode })}
           onLock={() => void lockNotes()}
           onClose={closeSettings}
         />
+      )}
+
+      {saveAsk && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-crust/70 px-4 backdrop-blur-sm">
+          <div className="w-full rounded-xl border border-surface1/70 bg-mantle p-4 shadow-2xl pop-enter">
+            <div className="flex items-center gap-2">
+              <Kami size={30} pose="confuso" />
+              <p className="text-sm font-semibold">Salvar nota?</p>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-subtext0">
+              As alterações desta nota ainda não foram salvas.
+            </p>
+            <div className="mt-3 flex justify-end gap-2 text-xs">
+              <button
+                onClick={() => setSaveAsk(null)}
+                className="rounded bg-surface0/70 px-2 py-1 text-subtext1 transition hover:bg-surface1"
+              >
+                cancelar
+              </button>
+              <button
+                onClick={() => {
+                  const run = saveAsk.run;
+                  setSaveAsk(null);
+                  run();
+                }}
+                className="rounded bg-red/15 px-2 py-1 text-red transition hover:bg-red/25"
+              >
+                descartar
+              </button>
+              <button
+                onClick={() => {
+                  const run = saveAsk.run;
+                  setSaveAsk(null);
+                  void commitDraft().then(run);
+                }}
+                className="rounded bg-mauve/20 px-2 py-1 text-mauve transition hover:bg-mauve/30"
+              >
+                salvar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {groupMenu && (
