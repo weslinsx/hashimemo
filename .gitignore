@@ -31,6 +31,7 @@ target
 
 # Builds locais
 src-tauri/gen
+release
 *.msi
 *.exe
 *.AppImage

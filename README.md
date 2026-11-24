@@ -13,7 +13,7 @@
   <img alt="React" src="https://img.shields.io/badge/react-19-61dafb">
   <img alt="Windows" src="https://img.shields.io/badge/windows-10%2F11-0078d4">
   <img alt="Linux" src="https://img.shields.io/badge/linux-arch%2Fcachyos-1793d1">
-  <img alt="status" src="https://img.shields.io/badge/vers%C3%A3o-0.3.0-f9e2af">
+  <img alt="status" src="https://img.shields.io/badge/vers%C3%A3o-0.3.1-f9e2af">
 </p>
 
 HashiMemo vive encaixado na borda direita da tela e guarda cada nota em um arquivo

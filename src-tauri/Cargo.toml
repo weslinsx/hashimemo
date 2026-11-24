@@ -1,6 +1,6 @@
 [package]
 name = "hashimemo"
-version = "0.3.0"
+version = "0.3.1"
 description = "Notas rÃ¡pidas em Markdown na borda da tela, com integraÃ§Ã£o local a agentes de IA"
 authors = ["weslinsx"]
 edition = "2024"
