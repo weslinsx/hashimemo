@@ -1,9 +1,11 @@
 //! Editor TipTap: markdown ao redor, toolbar, atalhos e inserção de capturas/colagens.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { EditorContent, useEditor, type Editor as TiptapEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
 import { Markdown } from "tiptap-markdown";
 
 export type Capture = { src: string; alt: string; source: string };
@@ -53,6 +55,87 @@ function base64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
+type MenuAction = {
+  label: string;
+  hint?: string;
+  active?: boolean;
+  run: () => void;
+};
+
+function ContextMenu({
+  x,
+  y,
+  groups,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  groups: MenuAction[][];
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState({ x, y });
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    setPos({
+      x: Math.max(4, Math.min(x, window.innerWidth - rect.width - 4)),
+      y: Math.max(4, Math.min(y, window.innerHeight - rect.height - 4)),
+    });
+  }, [x, y]);
+
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      if (ref.current?.contains(event.target as Node)) return;
+      onClose();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      style={{ left: pos.x, top: pos.y }}
+      onContextMenu={(event) => event.preventDefault()}
+      className="fixed z-50 w-56 rounded-lg border border-surface1/80 bg-mantle p-1 text-xs shadow-2xl"
+    >
+      {groups.map((group, index) => (
+        <div key={index} className={index ? "mt-1 border-t border-surface0/70 pt-1" : ""}>
+          {group.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                action.run();
+                onClose();
+              }}
+              className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left transition hover:bg-surface0 ${
+                action.active ? "text-mauve" : "text-subtext1 hover:text-text"
+              }`}
+            >
+              <span className="truncate">{action.label}</span>
+              {action.hint && (
+                <span className="ml-auto shrink-0 text-[0.6rem] text-overlay0">{action.hint}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function RichEditor({ value, onChange, onCapture, onError, onRemind, reminding }: Props) {
   const emit = useRef(value);
   const change = useRef(onChange);
@@ -60,6 +143,7 @@ export function RichEditor({ value, onChange, onCapture, onError, onRemind, remi
   const fail = useRef(onError);
   const [, force] = useState(0);
   const api = useRef<TiptapEditor | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
   change.current = onChange;
   capture.current = onCapture;
@@ -75,6 +159,8 @@ export function RichEditor({ value, onChange, onCapture, onError, onRemind, remi
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false } }),
       Image.configure({ inline: false, allowBase64: false }),
+      TaskList,
+      TaskItem.configure({ nested: true }),
       // breaks: true — quebra simples de linha é conteúdo, não espaço. Sem isso, nota escrita
       // fora do app (CLI/agente) perde as quebras no round-trip markdown -> editor -> markdown.
       Markdown.configure({ html: true, tightLists: true, linkify: false, breaks: true }),
@@ -96,6 +182,7 @@ export function RichEditor({ value, onChange, onCapture, onError, onRemind, remi
         else if (event.shiftKey && key === "x") chain().toggleStrike().run();
         else if (event.shiftKey && key === "8") chain().toggleBulletList().run();
         else if (event.shiftKey && key === "7") chain().toggleOrderedList().run();
+        else if (event.shiftKey && key === "9") chain().toggleTaskList().run();
         else return false;
         event.preventDefault();
         return true;
@@ -188,6 +275,59 @@ export function RichEditor({ value, onChange, onCapture, onError, onRemind, remi
     force((count) => count + 1);
   };
 
+  const clip = async (cut: boolean) => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    const text = editor.state.doc.textBetween(from, to, "\n");
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      fail.current?.("não foi possível escrever na área de transferência");
+      return;
+    }
+    if (cut) editor.chain().focus().deleteSelection().run();
+  };
+
+  const paste = async () => {
+    if (!editor) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      const content = text
+        .split(/\r?\n/)
+        .map((line) => (line ? { type: "paragraph", content: [{ type: "text", text: line }] } : { type: "paragraph" }));
+      editor.chain().focus().insertContent(content).run();
+    } catch {
+      fail.current?.("não foi possível ler a área de transferência");
+    }
+  };
+
+  const groups: MenuAction[][] = editor
+    ? [
+        [
+          { label: "Recortar", hint: "Ctrl+X", run: () => void clip(true) },
+          { label: "Copiar", hint: "Ctrl+C", run: () => void clip(false) },
+          { label: "Colar", hint: "Ctrl+V", run: () => void paste() },
+          { label: "Selecionar tudo", hint: "Ctrl+A", run: () => run((e) => e.chain().focus().selectAll().run()) },
+        ],
+        [
+          { label: "Negrito", hint: "Ctrl+B", active: editor.isActive("bold"), run: () => run((e) => e.chain().focus().toggleBold().run()) },
+          { label: "Itálico", hint: "Ctrl+I", active: editor.isActive("italic"), run: () => run((e) => e.chain().focus().toggleItalic().run()) },
+          { label: "Sublinhado", hint: "Ctrl+U", active: editor.isActive("underline"), run: () => run((e) => e.chain().focus().toggleUnderline().run()) },
+          { label: "Tachado", hint: "Ctrl+Shift+X", active: editor.isActive("strike"), run: () => run((e) => e.chain().focus().toggleStrike().run()) },
+          { label: "Código", hint: "Ctrl+E", active: editor.isActive("code"), run: () => run((e) => e.chain().focus().toggleCode().run()) },
+        ],
+        [
+          { label: "Título", active: editor.isActive("heading", { level: 2 }), run: () => run((e) => e.chain().focus().toggleHeading({ level: 2 }).run()) },
+          { label: "Lista com marcadores", hint: "Ctrl+Shift+8", active: editor.isActive("bulletList"), run: () => run((e) => e.chain().focus().toggleBulletList().run()) },
+          { label: "Lista numerada", hint: "Ctrl+Shift+7", active: editor.isActive("orderedList"), run: () => run((e) => e.chain().focus().toggleOrderedList().run()) },
+          { label: "Lista de tarefas", hint: "Ctrl+Shift+9", active: editor.isActive("taskList"), run: () => run((e) => e.chain().focus().toggleTaskList().run()) },
+          { label: "Citação", run: () => run((e) => e.chain().focus().toggleBlockquote().run()) },
+        ],
+      ]
+    : [];
+
   return (
     <>
       <div className="mx-3 flex items-center gap-0.5 rounded-md border border-surface0/60 bg-mantle/60 px-1 py-0.5">
@@ -225,6 +365,13 @@ export function RichEditor({ value, onChange, onCapture, onError, onRemind, remi
           1.
         </Button>
         <Button
+          active={editor?.isActive("taskList")}
+          title="Lista de tarefas (Ctrl+Shift+9)"
+          onClick={() => run((e) => e.chain().focus().toggleTaskList().run())}
+        >
+          ☑
+        </Button>
+        <Button
           active={editor?.isActive("heading", { level: 2 })}
           title="Título"
           onClick={() => run((e) => e.chain().focus().toggleHeading({ level: 2 }).run())}
@@ -247,9 +394,16 @@ export function RichEditor({ value, onChange, onCapture, onError, onRemind, remi
         )}
       </div>
 
-      <div className="mx-3 flex min-h-0 flex-1 flex-col rounded-md border border-surface0/60 bg-mantle/60">
+      <div
+        className="mx-3 flex min-h-0 flex-1 flex-col rounded-md border border-surface0/60 bg-mantle/60"
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setMenu({ x: event.clientX, y: event.clientY });
+        }}
+      >
         <EditorContent editor={editor} className="hashi-editor flex min-h-0 flex-1 flex-col" />
       </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} groups={groups} onClose={() => setMenu(null)} />}
     </>
   );
 }

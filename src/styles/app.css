@@ -390,7 +390,11 @@
   }
 
   .hashi-prose p {
-    margin: 0 0 0.4rem;
+    margin: 0 0 0.75rem;
+  }
+
+  .hashi-prose p:last-child {
+    margin-bottom: 0;
   }
 
   .hashi-prose h1,
@@ -424,6 +428,49 @@
     list-style: decimal outside;
     padding-left: 1.2rem;
     margin: 0.2rem 0;
+  }
+
+  .hashi-prose ul[data-type="taskList"] {
+    list-style: none;
+    padding-left: 0.1rem;
+  }
+
+  .hashi-prose ul[data-type="taskList"] li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+  }
+
+  .hashi-prose ul[data-type="taskList"] li > label {
+    flex: 0 0 auto;
+    margin-top: 0.15rem;
+    user-select: none;
+  }
+
+  .hashi-prose ul[data-type="taskList"] li > div {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .hashi-prose ul[data-type="taskList"] input[type="checkbox"] {
+    appearance: none;
+    width: 0.85rem;
+    height: 0.85rem;
+    border: 1px solid var(--color-surface2);
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--color-surface0) 60%, transparent);
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+
+  .hashi-prose ul[data-type="taskList"] input[type="checkbox"]:checked {
+    background: var(--color-mauve);
+    border-color: var(--color-mauve);
+  }
+
+  .hashi-prose ul[data-type="taskList"] li[data-checked="true"] > div {
+    color: var(--color-overlay0);
+    text-decoration: line-through;
   }
 
   .hashi-prose blockquote {
