@@ -129,8 +129,8 @@ pub fn set_opacity(_window: &WebviewWindow, _alpha: u8) {}
 pub fn set_no_activate(window: &WebviewWindow) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GetWindowLongPtrW, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-        SetWindowLongPtrW, SetWindowPos, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        GWL_EXSTYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_EX_APPWINDOW, WS_EX_NOACTIVATE,
+        WS_EX_TOOLWINDOW,
     };
 
     let Ok(handle) = window.hwnd() else { return };
@@ -146,15 +146,8 @@ pub fn set_no_activate(window: &WebviewWindow) {
             GWL_EXSTYLE,
             keep | WS_EX_NOACTIVATE.0 as isize | WS_EX_TOOLWINDOW.0 as isize,
         );
-        let _ = SetWindowPos(
-            hwnd,
-            None,
-            0,
-            0,
-            0,
-            0,
-            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
-        );
+        // Sem SWP_FRAMECHANGED: ele refaz o frame nativo e o DWM volta a desenhar
+        // a barra de título (minimizar/maximizar/fechar) por cima da bolha.
     }
 }
 
@@ -168,12 +161,24 @@ pub fn keep_overlay(window: &WebviewWindow, diameter: i32) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
     use windows::Win32::UI::WindowsAndMessaging::{
-        HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
+        GWL_EXSTYLE, GetWindowLongPtrW, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        SetWindowLongPtrW, SetWindowPos, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
     };
 
     let Ok(handle) = window.hwnd() else { return };
     let hwnd = HWND(handle.0 as *mut _);
+    // o frame nativo (barra de título com minimizar/maximizar/fechar) volta a aparecer
+    // se o DWM for recalculado; reaplica o frame estendido a cada show
+    remove_native_frame(window);
     unsafe {
+        // reaplica os estilos a cada show: o tao/iTaskbarList mexe neles ao exibir
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let keep = style & !(WS_EX_APPWINDOW.0 as isize);
+        SetWindowLongPtrW(
+            hwnd,
+            GWL_EXSTYLE,
+            keep | WS_EX_NOACTIVATE.0 as isize | WS_EX_TOOLWINDOW.0 as isize,
+        );
         let _ = SetWindowPos(
             hwnd,
             Some(HWND_TOPMOST),
