@@ -4,6 +4,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { EditorContent, useEditor, type Editor as TiptapEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
+import Paragraph from "@tiptap/extension-paragraph";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import { Markdown } from "tiptap-markdown";
@@ -61,6 +62,38 @@ type MenuAction = {
   active?: boolean;
   run: () => void;
 };
+
+// Linha em branco: markdown puro descarta parágrafos vazios. Um parágrafo só de
+// quebras vira `<br>` no arquivo e volta igual — o Enter duplo sobrevive ao save.
+const BlankParagraph = Paragraph.extend({
+  addStorage() {
+    return {
+      markdown: {
+        serialize(
+          state: {
+            write: (text: string) => void;
+            renderInline: (node: unknown) => void;
+            closeBlock: (node: unknown) => void;
+          },
+          node: any,
+        ) {
+          const onlyBreaks =
+            node.childCount > 0 &&
+            Array.from({ length: node.childCount }).every(
+              (_, index) => node.child(index).type.name === "hardBreak",
+            );
+          if (onlyBreaks) {
+            state.write("<br>".repeat(node.childCount));
+            state.closeBlock(node);
+            return;
+          }
+          state.renderInline(node);
+          state.closeBlock(node);
+        },
+      },
+    };
+  },
+});
 
 function ContextMenu({
   x,
@@ -157,7 +190,12 @@ export function RichEditor({ value, onChange, onCapture, onError, onRemind, remi
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false } }),
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3] },
+        link: { openOnClick: false },
+        paragraph: false,
+      }),
+      BlankParagraph,
       Image.configure({ inline: false, allowBase64: false }),
       TaskList,
       TaskItem.configure({ nested: true }),
@@ -173,7 +211,31 @@ export function RichEditor({ value, onChange, onCapture, onError, onRemind, remi
       // Atalhos no próprio ProseMirror: roda antes do keymap e do handler da janela.
       handleKeyDown: (_view, event) => {
         const instance = api.current;
-        if (!instance || !(event.ctrlKey || event.metaKey) || event.altKey) return false;
+        if (!instance) return false;
+        // Enter num parágrafo vazio (que não é o primeiro bloco) cria a linha em branco
+        // de verdade: hardBreak no parágrafo, que o serializador grava como <br>.
+        if (
+          event.key === "Enter" &&
+          !event.shiftKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.metaKey
+        ) {
+          const { $from } = instance.state.selection;
+          const parent = $from.parent;
+          if (
+            $from.depth === 1 &&
+            parent.type.name === "paragraph" &&
+            parent.textContent.trim() === "" &&
+            $from.index(0) > 0
+          ) {
+            instance.chain().focus().setHardBreak().run();
+            event.preventDefault();
+            return true;
+          }
+          return false;
+        }
+        if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
         const key = event.key.toLowerCase();
         const chain = () => instance.chain().focus();
         if (key === "b") chain().toggleBold().run();
